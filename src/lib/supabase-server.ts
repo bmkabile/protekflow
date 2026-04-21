@@ -1,10 +1,12 @@
 // src/lib/supabase-server.ts
 // Server-only client — use in Server Components, Route Handlers, and Server Actions
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import type { Database } from '@/types/supabase'
 
 export function createServerSupabaseClient() {
+  // Import inside function so next/headers is never evaluated at module load time
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { cookies } = require('next/headers')
   const cookieStore = cookies()
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
