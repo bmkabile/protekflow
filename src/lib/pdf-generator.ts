@@ -2,7 +2,8 @@
 // Generates signed SHE file PDFs entirely in-house — no third-party signing service needed
 // Uses pdf-lib for PDF creation and embeds the consultant's canvas signature
 
-import { PDFDocument, StandardFonts, rgb, degrees, PDFFont, PDFPage } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 
 export interface SheFileData {
   fileNumber:       string
@@ -95,7 +96,7 @@ async function addPage(doc: PDFDocument, boldFont: PDFFont, regularFont: PDFFont
 /** Main PDF generation function */
 export async function generateSheFilePdf(data: SheFileData): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
-  doc.registerFontkit(require('@pdf-lib/fontkit'))
+  doc.registerFontkit(fontkit)
 
   const boldFont    = await doc.embedFont(StandardFonts.HelveticaBold)
   const regularFont = await doc.embedFont(StandardFonts.Helvetica)
