@@ -1,174 +1,140 @@
 // src/lib/docuseal.ts
-// DocuSeal e-signature integration
+// DocuSeal e-signature integration for SHE file signing
 // Docs: https://www.docuseal.co/docs/api
 
-const BASE_URL    = process.env.DOCUSEAL_URL ?? 'https://api.docuseal.co'
-const API_KEY     = process.env.DOCUSEAL_API_KEY!
-const TEMPLATE_ID = process.env.DOCUSEAL_SHE_TEMPLATE_ID!
-const APP_URL     = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+const DOCUSEAL_URL = process.env.DOCUSEAL_URL || 'https://api.docuseal.co'
+const DOCUSEAL_API_KEY = process.env.DOCUSEAL_API_KEY!
+const SHE_TEMPLATE_ID = process.env.DOCUSEAL_SHE_TEMPLATE_ID!
 
-function headers() {
-  return { 'X-Auth-Token': API_KEY, 'Content-Type': 'application/json' }
+interface DocuSealSubmitter {
+  email: string
+  name: string
+  role: string       // must match role name in DocuSeal template
+  values?: Record<string, string>  // pre-fill template fields
 }
 
-export interface DocuSealSubmission {
+interface CreateSubmissionParams {
+  templateId?: string
+  submitters: DocuSealSubmitter[]
+  sendEmail?: boolean
+  completionRedirectUrl?: string
+  // Pre-filled field values mapped to DocuSeal field names
+  prefill?: Record<string, string>
+}
+
+interface DocuSealSubmission {
   id: number
-  status: 'pending' | 'completed'
-  url: string                            // signing URL for the consultant
-  documents?: Array<{ id: number; url: string }>
-  submitters?: Array<{
-    id: number
-    email: string
-    role: string
-    status: string
-    embed_src: string                    // embed URL for iframe signing
-  }>
+  status: string
+  url: string          // signing URL to embed or redirect to
+  documents: Array<{ id: number; url: string }>
+}
+
+/** Headers used on every DocuSeal request */
+function docusealHeaders() {
+  return {
+    'X-Auth-Token': DOCUSEAL_API_KEY,
+    'Content-Type': 'application/json',
+  }
 }
 
 /**
  * Creates a DocuSeal submission for a SHE file.
- * Returns the submission ID and the consultant's signing URL.
+ * Call this when the consultant clicks "Review & Sign" — after the
+ * SHE file draft has been generated and is ready for professional sign-off.
  *
- * TEMPLATE SETUP in DocuSeal:
- * 1. Upload your SHE file PDF/DOCX to DocuSeal → Templates
- * 2. Add two roles: "Consultant" (signer) and "Contractor" (CC / copy only)
- * 3. Place a signature field assigned to the "Consultant" role
- * 4. Place a date field assigned to the "Consultant" role
- * 5. Add text fields for: file_number, project_name, project_address,
- *    consultant_name, signing_date — assign all to "Consultant" role
- * 6. Copy the template ID from the URL and put it in DOCUSEAL_SHE_TEMPLATE_ID
+ * @returns submission ID and the signing URL for the consultant
  */
-export async function createSheSubmission(params: {
-  sheFileId:        string
-  fileNumber:       string
-  projectName:      string
-  projectAddress:   string
-  projectValue:     number | null
-  consultantEmail:  string
-  consultantName:   string
-  contractorEmail:  string
-  contractorName:   string
+export async function createSheFileSubmission(params: {
+  sheFileId: string
+  fileNumber: string
+  projectName: string
+  projectAddress: string
+  consultantEmail: string
+  consultantName: string
+  contractorEmail: string
+  contractorName: string
+  completionWebhookUrl: string
 }): Promise<DocuSealSubmission> {
-  if (!API_KEY || !TEMPLATE_ID) {
-    throw new Error('DOCUSEAL_API_KEY or DOCUSEAL_SHE_TEMPLATE_ID not set in environment')
-  }
-
   const body = {
-    template_id: Number(TEMPLATE_ID),
-    send_email:  true,
-    // Webhook: DocuSeal POSTs here when all parties have signed
-    completed_redirect_url: `${APP_URL}/api/docuseal/webhook`,
+    template_id: SHE_TEMPLATE_ID,
+    send_email: true,
+    // Where DocuSeal sends a POST when all parties have signed
+    completed_redirect_url: params.completionWebhookUrl,
     submitters: [
       {
         email: params.consultantEmail,
-        name:  params.consultantName,
-        role:  'Consultant',
-        send_email: true,
-        // Pre-fill fields so the consultant doesn't have to type them
+        name: params.consultantName,
+        role: 'Consultant',          // must match role in your DocuSeal template
         values: {
-          file_number:     params.fileNumber,
-          project_name:    params.projectName,
-          project_address: params.projectAddress,
-          consultant_name: params.consultantName,
-          project_value:   params.projectValue
-            ? `R${params.projectValue.toLocaleString('en-ZA')}`
-            : '',
-          signing_date:    new Date().toLocaleDateString('en-ZA'),
+          'file_number':     params.fileNumber,
+          'project_name':    params.projectName,
+          'project_address': params.projectAddress,
+          'consultant_name': params.consultantName,
+          'signing_date':    new Date().toLocaleDateString('en-ZA'),
         },
-        // metadata passes through to the webhook so we can identify the file
-        metadata: { she_file_id: params.sheFileId },
+        metadata: { she_file_id: params.sheFileId }
       },
       {
         email: params.contractorEmail,
-        name:  params.contractorName,
-        role:  'Contractor',
-        send_email: true,        // contractor gets a copy when signing is complete
-      },
-    ],
+        name: params.contractorName,
+        role: 'Contractor',         // receives a copy; may not need to sign
+        send_email: true,
+      }
+    ]
   }
 
-  const res = await fetch(`${BASE_URL}/submissions`, {
-    method:  'POST',
-    headers: headers(),
-    body:    JSON.stringify(body),
+  const res = await fetch(`${DOCUSEAL_URL}/submissions`, {
+    method: 'POST',
+    headers: docusealHeaders(),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`DocuSeal createSubmission failed (${res.status}): ${err}`)
+    throw new Error(`DocuSeal submission creation failed: ${err}`)
   }
 
-  const data = await res.json()
-
-  // DocuSeal returns an array — first element is the submission
-  const submission = Array.isArray(data) ? data[0] : data
-  return submission
+  return res.json()
 }
 
 /**
- * Gets the signing URL for a specific submitter (the consultant).
- * Use this to redirect the consultant directly to sign without email.
+ * Gets the current status and document URLs for a submission.
+ * Poll this or use the webhook (preferred).
  */
-export function getConsultantSigningUrl(submission: DocuSealSubmission): string | null {
-  const consultant = submission.submitters?.find(s => s.role === 'Consultant')
-  return consultant?.embed_src ?? submission.url ?? null
-}
-
-/**
- * Fetches current status of a submission.
- * Poll this or rely on the webhook (preferred).
- */
-export async function getSubmission(submissionId: string | number): Promise<DocuSealSubmission> {
-  const res = await fetch(`${BASE_URL}/submissions/${submissionId}`, {
-    headers: headers(),
+export async function getSubmission(submissionId: string): Promise<DocuSealSubmission> {
+  const res = await fetch(`${DOCUSEAL_URL}/submissions/${submissionId}`, {
+    headers: docusealHeaders(),
   })
   if (!res.ok) throw new Error(`DocuSeal getSubmission failed: ${res.status}`)
   return res.json()
 }
 
 /**
- * Returns the download URL for the completed signed document.
- * Only available when submission.status === 'completed'.
+ * Gets the signed document download URL.
+ * Call this after status === 'completed'.
  */
-export async function getSignedDocumentUrl(submissionId: string | number): Promise<string | null> {
-  try {
-    const submission = await getSubmission(submissionId)
-    if (submission.status !== 'completed') return null
-    return submission.documents?.[0]?.url ?? null
-  } catch {
-    return null
-  }
+export async function getSignedDocumentUrl(submissionId: string): Promise<string | null> {
+  const submission = await getSubmission(submissionId)
+  if (submission.status !== 'completed') return null
+  return submission.documents?.[0]?.url ?? null
 }
 
 /**
- * Parses a DocuSeal webhook payload.
- * DocuSeal sends POST to /api/docuseal/webhook when signing is complete.
+ * Webhook handler — call this from /api/docuseal/webhook
+ * DocuSeal POSTs here when signing is complete.
  *
- * Webhook body shape:
- * { event_type: 'submission.completed', data: { id, status, documents: [...], submitters: [...] } }
+ * Body shape (DocuSeal webhook):
+ * { event_type: 'form.completed', data: { id, status, documents: [...] } }
  */
-export function parseWebhook(body: Record<string, unknown>): {
-  eventType:    string
+export function parseDocuSealWebhook(body: Record<string, unknown>): {
   submissionId: string
-  isComplete:   boolean
-  documentUrl:  string | null
-  sheFileId:    string | null
+  isComplete: boolean
+  documentUrl: string | null
 } {
-  const eventType    = String(body.event_type ?? '')
-  const data         = (body.data ?? body) as DocuSealSubmission
-  const isComplete   = data.status === 'completed' || eventType === 'submission.completed'
-  const documentUrl  = data.documents?.[0]?.url ?? null
-
-  // Extract our she_file_id from the consultant submitter's metadata
-  const consultantSubmitter = data.submitters?.find(s => s.role === 'Consultant')
-  const metadata     = (consultantSubmitter as any)?.metadata
-  const sheFileId    = metadata?.she_file_id ?? null
-
+  const data = body.data as DocuSealSubmission
   return {
-    eventType,
     submissionId: String(data.id),
-    isComplete,
-    documentUrl,
-    sheFileId,
+    isComplete: data.status === 'completed',
+    documentUrl: data.documents?.[0]?.url ?? null,
   }
 }
