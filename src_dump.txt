@@ -1,0 +1,3124 @@
+﻿=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\admin\consultants\[id]\page.tsx ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\admin\page.tsx ===
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
+import { formatZAR } from '@/lib/pricing'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g200:'#bbf7d0',g300:'#86efac',g400:'#4ade80',
+  g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g800:'#166534',g900:'#14532d',g950:'#052e16',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export default async function AdminDashboard() {
+  const supabase = createServerSupabaseClient()
+  const { data:{ user } } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/admin-login')
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') redirect('/')
+
+  const admin = createAdminClient()
+  const [filesRes, contractorsRes, consultantsRes, txRes] = await Promise.all([
+    admin.from('she_files').select('id,status,price_zar,created_at',{count:'exact'}),
+    admin.from('contractors').select('id',{count:'exact'}),
+    admin.from('consultants').select('id,tier,verification_status',{count:'exact'}),
+    admin.from('transactions').select('platform_fee_amount,created_at'),
+  ])
+
+  const files       = filesRes.data ?? []
+  const totalFiles  = filesRes.count ?? 0
+  const consultants = consultantsRes.data ?? []
+  const txns        = txRes.data ?? []
+  const proCount    = consultants.filter((c:any) => c.tier==='pro').length
+  const pendingVerify = consultants.filter((c:any) => c.verification_status==='pending').length
+  const totalRevenue  = txns.reduce((s:number,t:any) => s+(t.platform_fee_amount??0),0)
+  const proSubRevenue = proCount * 99900
+
+  const { data: recentFiles } = await admin
+    .from('v_file_summary').select('*').order('created_at',{ascending:false}).limit(8)
+
+  const { data: pendingConsultants } = await admin
+    .from('consultants')
+    .select('id,sacpcmp_number,verification_status,created_at,profiles(full_name)')
+    .eq('verification_status','pending').order('created_at',{ascending:true}).limit(4)
+
+  const statCards = [
+    {label:'SHE files total',  value:totalFiles.toString()},
+    {label:'Platform revenue', value:formatZAR(totalRevenue+proSubRevenue), note:`incl ${formatZAR(proSubRevenue)} subs`},
+    {label:'Contractors',      value:(contractorsRes.count??0).toString()},
+    {label:'Consultants',      value:consultants.length.toString(), note:`${proCount} Pro Â· ${consultants.length-proCount} Free`},
+  ]
+
+  const statusColor: Record<string,{bg:string;color:string}> = {
+    completed:{bg:'#dcfce7',color:'#166534'}, cancelled:{bg:'#fee2e2',color:'#991b1b'},
+  }
+  const getStatus = (s:string) => statusColor[s] ?? {bg:'#dbeafe',color:'#1d4ed8'}
+
+  return (
+    <div style={{fontFamily:C.sans,minHeight:'100vh',background:C.g50}}>
+      <header style={{background:C.g900,padding:'0 28px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <svg width="28" height="28" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="7" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:17}}>ProtekFlow</span>
+          <span style={{background:'#ef4444',color:C.white,fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:4,marginLeft:4,letterSpacing:'0.5px'}}>ADMIN</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <span style={{color:C.g400,fontSize:13}}>Legacy Landmark</span>
+          <Link href="/" style={{color:C.g600,fontSize:12,textDecoration:'none',border:`1px solid ${C.g800}`,padding:'4px 12px',borderRadius:6}}>Sign out</Link>
+        </div>
+      </header>
+
+      <div style={{display:'grid',gridTemplateColumns:'200px 1fr',minHeight:'calc(100vh - 52px)'}}>
+        <aside style={{background:C.g900,paddingTop:8}}>
+          {[
+            {href:'/admin',              label:'Overview',    icon:'âŠž'},
+            {href:'/admin/files',        label:'All files',   icon:'âŠŸ'},
+            {href:'/admin/contractors',  label:'Contractors', icon:'âŠ¿'},
+            {href:'/admin/consultants',  label:'Consultants', icon:'â—‰'},
+            {href:'/admin/revenue',      label:'Revenue',     icon:'â—ˆ'},
+            {href:'/admin/settings',     label:'Settings',    icon:'âŠ™'},
+          ].map(item => (
+            <Link key={item.href} href={item.href} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 20px',fontSize:13,color:C.g300,textDecoration:'none',borderLeft:'3px solid transparent'}}>
+              <span style={{fontSize:14,opacity:0.7}}>{item.icon}</span>{item.label}
+            </Link>
+          ))}
+        </aside>
+
+        <main style={{padding:32}}>
+          <div style={{marginBottom:28}}>
+            <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:600,color:C.g900,margin:'0 0 4px'}}>Platform overview</h1>
+            <p style={{fontSize:13,color:C.g600,margin:0}}>East London pilot Â· {new Date().toLocaleDateString('en-ZA',{month:'long',year:'numeric'})}</p>
+          </div>
+
+          {/* Stats */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}}>
+            {statCards.map(s => (
+              <div key={s.label} style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:12,padding:'16px 20px'}}>
+                <div style={{fontSize:12,color:C.g600,marginBottom:6}}>{s.label}</div>
+                <div style={{fontFamily:C.serif,fontSize:26,fontWeight:700,color:C.g900,lineHeight:1}}>{s.value}</div>
+                {s.note && <div style={{fontSize:11,color:C.g500,marginTop:4}}>{s.note}</div>}
+              </div>
+            ))}
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:20}}>
+            {/* Pending verifications */}
+            <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+                <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:0}}>Pending verifications</h2>
+                {pendingVerify>0 && (
+                  <span style={{background:'#fef3c7',color:'#92400e',fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20}}>{pendingVerify}</span>
+                )}
+              </div>
+              {!pendingConsultants?.length ? (
+                <p style={{fontSize:13,color:C.g400,textAlign:'center',padding:'16px 0'}}>No pending verifications.</p>
+              ) : (
+                <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                  {(pendingConsultants as any[]).map((c:any) => (
+                    <div key={c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:C.g50,borderRadius:10,padding:'12px 16px'}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:C.g900}}>{c.profiles?.full_name}</div>
+                        <div style={{fontFamily:'monospace',fontSize:11,color:C.g500}}>{c.sacpcmp_number}</div>
+                      </div>
+                      <Link href={`/admin/consultants/${c.id}`} style={{background:C.g900,color:C.white,fontSize:12,fontWeight:600,padding:'6px 14px',borderRadius:8,textDecoration:'none'}}>Verify â†’</Link>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Revenue */}
+            <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24}}>
+              <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:'0 0 18px'}}>Revenue breakdown</h2>
+              {[
+                {label:'Platform fees (Free â€” 25%)',       value:formatZAR(Math.round(totalRevenue*0.5))},
+                {label:'Platform fees (Pro â€” 15%)',        value:formatZAR(Math.round(totalRevenue*0.5))},
+                {label:`Pro subs (${proCount} Ã— R999/mo)`, value:formatZAR(proSubRevenue)},
+                {label:'Total platform revenue',           value:formatZAR(totalRevenue+proSubRevenue), bold:true},
+              ].map((row,i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom: i<3?`1px solid ${C.g50}`:'none'}}>
+                  <span style={{fontSize:13,color:row.bold?C.g900:C.g600,fontWeight:row.bold?600:400}}>{row.label}</span>
+                  <span style={{fontFamily:C.serif,fontSize:15,color:C.g900,fontWeight:row.bold?700:400}}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent files */}
+          <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+              <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:0}}>Recent file activity</h2>
+              <Link href="/admin/files" style={{fontSize:12,color:C.g600,textDecoration:'none'}}>View all â†’</Link>
+            </div>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:`1px solid ${C.g100}`}}>
+                    {['File','Contractor','Consultant','Amount','Fee','Status'].map(h => (
+                      <th key={h} style={{textAlign:'left',padding:'8px 12px',color:C.g500,fontWeight:500,fontSize:12}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(recentFiles??[]).map((f:any) => {
+                    const st = getStatus(f.status)
+                    return (
+                      <tr key={f.id} style={{borderBottom:`1px solid ${C.g50}`}}>
+                        <td style={{padding:'11px 12px',fontFamily:'monospace',fontSize:12,fontWeight:600}}>{f.file_number}</td>
+                        <td style={{padding:'11px 12px',color:C.g800,fontSize:12}}>{f.contractor_name}</td>
+                        <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>{f.consultant_name??'â€”'}</td>
+                        <td style={{padding:'11px 12px',fontWeight:600}}>{formatZAR(f.price_zar)}</td>
+                        <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>{f.consultant_tier==='pro'?'15%':'25%'}</td>
+                        <td style={{padding:'11px 12px'}}>
+                          <span style={{...st,display:'inline-block',fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20}}>{f.status}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\admin\consultants\[id]\verify\route.ts ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\docuseal\webhook\route.ts ===
+// src/app/api/docuseal/webhook/route.ts
+// DocuSeal POSTs here when all parties have signed the SHE file
+// Configure this URL in your DocuSeal template settings
+
+import { NextRequest, NextResponse } from 'next/server'
+import { parseDocuSealWebhook } from '@/lib/docuseal'
+import { createAdminClient } from '@/lib/supabase-server'
+
+export async function POST(request: NextRequest) {
+  const body = await request.json()
+  const { submissionId, isComplete, documentUrl } = parseDocuSealWebhook(body)
+
+  if (!isComplete) {
+    // Partial signing â€” one party signed but not all. Log and wait.
+    console.log(`[DocuSeal] Submission ${submissionId} not yet complete:`, body.data?.status)
+    return NextResponse.json({ received: true })
+  }
+
+  const supabase = createAdminClient()
+
+  // Find the SHE file linked to this DocuSeal submission
+  const { data: file, error } = await supabase
+    .from('she_files')
+    .select('id, contractor_id, status')
+    .eq('docuseal_submission_id', submissionId)
+    .single()
+
+  if (error || !file) {
+    console.error('[DocuSeal] Could not find SHE file for submission:', submissionId)
+    return NextResponse.json({ error: 'File not found' }, { status: 404 })
+  }
+
+  // Update file status to completed and store the signed document URL
+  const { error: updateError } = await supabase
+    .from('she_files')
+    .update({
+      status: 'completed',
+      docuseal_status: 'completed',
+      docuseal_document_url: documentUrl,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', file.id)
+
+  if (updateError) {
+    console.error('[DocuSeal] Failed to update file status:', updateError)
+    return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  }
+
+  // Update consultant's completed file count
+  const { data: sheFile } = await supabase
+    .from('she_files')
+    .select('consultant_id')
+    .eq('id', file.id)
+    .single()
+
+  if (sheFile?.consultant_id) {
+    await supabase.rpc('increment_consultant_files', {
+      consultant_uuid: sheFile.consultant_id
+    })
+    // SQL for this RPC:
+    // CREATE OR REPLACE FUNCTION increment_consultant_files(consultant_uuid UUID)
+    // RETURNS void AS $$
+    //   UPDATE consultants
+    //   SET files_completed = files_completed + 1,
+    //       files_this_month = files_this_month + 1
+    //   WHERE id = consultant_uuid;
+    // $$ LANGUAGE sql;
+  }
+
+  console.log(`[DocuSeal] SHE file ${file.id} completed. Document URL: ${documentUrl}`)
+  return NextResponse.json({ received: true })
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\files\create\route.ts ===
+// src/app/api/files/create/route.ts
+// Creates a new SHE file after the contractor completes the intake wizard
+
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { buildPayFastPayment, } from '@/lib/payfast'
+import { getFilePrice } from '@/lib/pricing'
+import { z } from 'zod'
+
+const CreateFileSchema = z.object({
+  project_name:         z.string().min(3),
+  project_address:      z.string().min(5),
+  project_value:        z.number().positive().optional(),
+  project_start_date:   z.string().optional(),
+  project_end_date:     z.string().optional(),
+  principal_contractor: z.string().optional(),
+  client_name:          z.string().optional(),
+  site_agent:           z.string().optional(),
+  volume_tier:          z.enum(['standard', 'volume_a', 'volume_b', 'volume_c']).default('standard'),
+  // Section content from wizard
+  sections:             z.record(z.unknown()).optional(),
+})
+
+export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
+  // 1. Verify the user is authenticated
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
+  // 2. Verify they are a contractor
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, full_name')
+    .eq('id', user.id)
+    .single()
+
+  if (profile?.role !== 'contractor') {
+    return NextResponse.json({ error: 'Only contractors can create SHE files' }, { status: 403 })
+  }
+
+  // 3. Parse and validate body
+  const body = await request.json()
+  const parsed = CreateFileSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 })
+  }
+
+  const { sections, volume_tier, ...fileData } = parsed.data
+  const priceZar = getFilePrice(volume_tier)
+
+  // 4. Insert the SHE file (status: 'draft' â†’ will become 'payment_pending')
+  const { data: file, error: insertError } = await supabase
+    .from('she_files')
+    .insert({
+      contractor_id: user.id,
+      volume_tier,
+      price_zar: priceZar,
+      status: 'payment_pending',
+      ...fileData,
+    })
+    .select()
+    .single()
+
+  if (insertError || !file) {
+    console.error('[files/create] Insert error:', insertError)
+    return NextResponse.json({ error: 'Failed to create file' }, { status: 500 })
+  }
+
+  // 5. Optionally insert wizard section data
+  if (sections && Object.keys(sections).length > 0) {
+    const sectionRows = Object.entries(sections).map(([key, content]) => ({
+      she_file_id: file.id,
+      section_key: key,
+      content,
+    }))
+    await supabase.from('she_file_sections').insert(sectionRows)
+  }
+
+  // 6. Build PayFast payment object
+  const payment = buildPayFastPayment({
+    sheFileId:        file.id,
+    fileNumber:       file.file_number,
+    contractorEmail:  user.email!,
+    contractorName:   profile.full_name,
+    amountCents:      priceZar,
+  })
+
+  return NextResponse.json({
+    file,
+    payment,   // front end uses this to redirect to PayFast
+  }, { status: 201 })
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\files\sign\route.ts ===
+// src/app/api/files/[id]/sign/route.ts
+// Consultant triggers DocuSeal e-signature for a SHE file
+// Called when consultant clicks "Review & Sign" in their dashboard
+
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
+import { createSheFileSubmission } from '@/lib/docuseal'
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const fileId = params.id
+  const admin  = createAdminClient()
+
+  // Fetch the file with related contractor and consultant profiles
+  const { data: file } = await admin
+    .from('she_files')
+    .select(`
+      *,
+      contractor:profiles!she_files_contractor_id_fkey(full_name, email:auth_users(email)),
+      consultant:profiles!she_files_consultant_id_fkey(full_name, email:auth_users(email))
+    `)
+    .eq('id', fileId)
+    .eq('consultant_id', user.id)   // ensure this consultant owns this file
+    .single()
+
+  if (!file) return NextResponse.json({ error: 'File not found or not assigned to you' }, { status: 404 })
+  if (!['paid', 'matched', 'in_review'].includes(file.status)) {
+    return NextResponse.json({ error: `Cannot sign a file with status: ${file.status}` }, { status: 422 })
+  }
+
+  // Fetch emails from Supabase Auth (not in profiles table)
+  const { data: contractorUser } = await admin.auth.admin.getUserById(file.contractor_id)
+  const { data: consultantUser } = await admin.auth.admin.getUserById(file.consultant_id!)
+
+  const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/docuseal/webhook`
+
+  try {
+    const submission = await createSheFileSubmission({
+      sheFileId:         fileId,
+      fileNumber:        file.file_number,
+      projectName:       file.project_name,
+      projectAddress:    file.project_address,
+      consultantEmail:   consultantUser?.user?.email ?? '',
+      consultantName:    (file.consultant as any)?.full_name ?? '',
+      contractorEmail:   contractorUser?.user?.email ?? '',
+      contractorName:    (file.contractor as any)?.full_name ?? '',
+      completionWebhookUrl: webhookUrl,
+    })
+
+    // Save the DocuSeal submission ID to the file
+    await admin.from('she_files').update({
+      status: 'awaiting_sign',
+      docuseal_submission_id: String(submission.id),
+      docuseal_status: 'pending',
+      review_started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', fileId)
+
+    return NextResponse.json({
+      submission_id: submission.id,
+      signing_url: submission.url,   // redirect consultant here to sign
+    })
+  } catch (err) {
+    console.error('[sign] DocuSeal error:', err)
+    return NextResponse.json({ error: 'DocuSeal submission failed' }, { status: 500 })
+  }
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\files\[id]\complete\route.ts ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\files\[id]\route.ts ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\api\payments\notify\route.ts ===
+// src/app/api/payments/notify/route.ts
+// PayFast Instant Transaction Notification (ITN) webhook
+// PayFast POSTs here when a contractor payment completes or fails
+
+import { NextRequest, NextResponse } from 'next/server'
+import { validateITN } from '@/lib/payfast'
+import { createAdminClient } from '@/lib/supabase-server'
+import { splitRevenue } from '@/lib/pricing'
+
+export async function POST(request: NextRequest) {
+  const formData = await request.formData()
+  const body = Object.fromEntries(formData.entries()) as Record<string, string>
+
+  // 1. Validate the ITN is genuinely from PayFast
+  const isValid = await validateITN(body, request.headers)
+  if (!isValid) {
+    console.error('[PayFast ITN] Validation failed', body)
+    return new NextResponse('Invalid ITN', { status: 400 })
+  }
+
+  const { payment_status, m_payment_id: sheFileId, pf_payment_id } = body
+
+  const supabase = createAdminClient()
+
+  if (payment_status === 'COMPLETE') {
+    // 2. Fetch the file to get price and consultant tier
+    const { data: file } = await supabase
+      .from('she_files')
+      .select('*, consultants(tier)')
+      .eq('id', sheFileId)
+      .single()
+
+    if (!file) {
+      console.error('[PayFast ITN] SHE file not found:', sheFileId)
+      return new NextResponse('Not found', { status: 404 })
+    }
+
+    const consultantTier = (file as any).consultants?.tier ?? 'free'
+    const { platformFee, consultantAmount, feePct } = splitRevenue(
+      file.price_zar,
+      consultantTier
+    )
+
+    // 3. Update SHE file status â†’ paid, set 48h SLA deadline
+    const slaDeadline = new Date()
+    slaDeadline.setHours(slaDeadline.getHours() + 48)
+
+    await supabase.from('she_files').update({
+      status: 'paid',
+      paid_at: new Date().toISOString(),
+      payfast_payment_id: pf_payment_id,
+      sla_deadline: slaDeadline.toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', sheFileId)
+
+    // 4. Record the transaction
+    await supabase.from('transactions').insert({
+      she_file_id:          sheFileId,
+      contractor_id:        file.contractor_id,
+      consultant_id:        file.consultant_id,
+      gross_amount:         file.price_zar,
+      platform_fee_pct:     feePct,
+      platform_fee_amount:  platformFee,
+      consultant_amount:    consultantAmount,
+      payfast_payment_id:   pf_payment_id,
+    })
+
+    console.log(`[PayFast ITN] Payment complete for ${sheFileId}, R${file.price_zar / 100}`)
+  } else if (payment_status === 'CANCELLED') {
+    await supabase.from('she_files').update({
+      status: 'cancelled',
+      updated_at: new Date().toISOString(),
+    }).eq('id', sheFileId)
+  }
+
+  // PayFast expects a 200 OK â€” anything else triggers a retry
+  return new NextResponse('OK', { status: 200 })
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\auth\admin-login\page.tsx ===
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',
+  g800:'#166534',g900:'#14532d',g950:'#052e16',white:'#ffffff',
+  serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export default function AdminLoginPage() {
+  const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleLogin = async (e:React.FormEvent) => {
+    e.preventDefault(); setLoading(true); setError('')
+    const supabase = createClient()
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
+    if (err) { setError(err.message); setLoading(false); return }
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
+    if (profile?.role !== 'admin') {
+      await supabase.auth.signOut()
+      setError('This account does not have admin access.')
+      setLoading(false); return
+    }
+    router.push('/admin'); router.refresh()
+  }
+
+  const inp = {width:'100%',padding:'10px 14px',border:`1px solid #dcfce7`,borderRadius:8,fontSize:14,color:C.g900,fontFamily:C.sans,outline:'none',boxSizing:'border-box' as const,background:C.white}
+
+  return (
+    <div style={{minHeight:'100vh',background:'#030d06',display:'flex',alignItems:'center',justifyContent:'center',padding:24,fontFamily:C.sans}}>
+      <div style={{background:C.white,borderRadius:20,padding:'40px 36px',width:'100%',maxWidth:400}}>
+        <Link href="/" style={{display:'flex',alignItems:'center',gap:8,textDecoration:'none',marginBottom:8}}>
+          <svg width="30" height="30" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="8" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.g900,fontSize:17}}>ProtekFlow</span>
+          <span style={{background:'#fee2e2',color:'#991b1b',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:4,marginLeft:4}}>ADMIN</span>
+        </Link>
+
+        <div style={{borderLeft:`3px solid #fca5a5`,paddingLeft:12,marginBottom:24,marginTop:20}}>
+          <div style={{fontSize:12,color:'#991b1b',fontWeight:600}}>Restricted access</div>
+          <div style={{fontSize:12,color:'#9ca3af',marginTop:2}}>Legacy Landmark (Pty) Ltd internal use only.</div>
+        </div>
+
+        <form onSubmit={handleLogin} style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}}>Admin email</label>
+            <input style={inp} type="email" placeholder="admin@protekflow.co.za" value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}}>Password</label>
+            <input style={inp} type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" value={password} onChange={e => setPassword(e.target.value)} required />
+          </div>
+          {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>
+            {loading?'Verifyingâ€¦':'Access admin â†’'}
+          </button>
+        </form>
+
+        <p style={{textAlign:'center',fontSize:12,color:'#9ca3af',marginTop:20}}>
+          <Link href="/" style={{color:'#9ca3af',textDecoration:'none'}}>â† Back to home</Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\auth\callback\route.ts ===
+// src/app/auth/callback/route.ts
+// Supabase magic link / email confirmation callback
+
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(request: NextRequest) {
+  const { searchParams, origin } = new URL(request.url)
+  const code = searchParams.get('code')
+  const next = searchParams.get('next') ?? '/'
+
+  if (code) {
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name) { return cookieStore.get(name)?.value },
+          set(name, value, options) { cookieStore.set({ name, value, ...options }) },
+          remove(name, options) { cookieStore.set({ name, value: '', ...options }) },
+        },
+      }
+    )
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles').select('role').eq('id', user.id).single()
+        return NextResponse.redirect(`${origin}/${profile?.role ?? ''}`)
+      }
+      return NextResponse.redirect(`${origin}${next}`)
+    }
+  }
+
+  return NextResponse.redirect(`${origin}/auth/login?error=Could not confirm email`)
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\auth\login\page.tsx ===
+'use client'
+import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',
+  g800:'#166534',g900:'#14532d',g950:'#052e16',white:'#ffffff',
+  serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export default function LoginPage() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const [role, setRole] = useState<'contractor'|'consultant'>('contractor')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault(); setLoading(true); setError('')
+    const supabase = createClient()
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
+    if (err) { setError(err.message); setLoading(false); return }
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
+    router.push(params.get('redirect') ?? `/${profile?.role ?? 'contractor'}`)
+    router.refresh()
+  }
+
+  return (
+    <div style={{minHeight:'100vh',background:C.g950,display:'flex',alignItems:'center',justifyContent:'center',padding:24,fontFamily:C.sans}}>
+      <div style={{background:C.white,borderRadius:20,padding:'40px 36px',width:'100%',maxWidth:420}}>
+        {/* Logo */}
+        <Link href="/" style={{display:'flex',alignItems:'center',gap:8,textDecoration:'none',marginBottom:28}}>
+          <svg width="30" height="30" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="8" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.g900,fontSize:17}}>ProtekFlow</span>
+        </Link>
+
+        {/* Role tabs */}
+        <div style={{display:'flex',gap:6,marginBottom:24,background:C.g50,borderRadius:10,padding:4}}>
+          {(['contractor','consultant'] as const).map(r => (
+            <button key={r} onClick={() => setRole(r)} style={{flex:1,padding:'8px 4px',borderRadius:8,border:'none',fontSize:13,fontWeight:500,cursor:'pointer',background:role===r?C.g900:C.g50,color:role===r?C.white:C.g700,transition:'all 0.15s',textTransform:'capitalize',fontFamily:C.sans}}>{r}</button>
+          ))}
+        </div>
+
+        <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:700,color:C.g900,margin:'0 0 4px'}}>Welcome back</h1>
+        <p style={{fontSize:13,color:C.g600,margin:'0 0 24px'}}>{role==='contractor'?'Access your SHE files and projects':'Manage your assignments and earnings'}</p>
+
+        <form onSubmit={handleLogin} style={{display:'flex',flexDirection:'column',gap:14}}>
+          {[{label:'Email address',type:'email',val:email,set:setEmail,ph:'you@example.com'},
+            {label:'Password',type:'password',val:password,set:setPassword,ph:'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}].map(f => (
+            <div key={f.label}>
+              <label style={{display:'block',fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}}>{f.label}</label>
+              <input type={f.type} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} required
+                style={{width:'100%',padding:'10px 14px',border:`1px solid ${C.g100}`,borderRadius:8,fontSize:14,color:C.g900,fontFamily:C.sans,outline:'none',boxSizing:'border-box' as const,background:C.white}} />
+            </div>
+          ))}
+          {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>
+            {loading?'Logging inâ€¦':'Log in â†’'}
+          </button>
+        </form>
+
+        <p style={{textAlign:'center',fontSize:13,color:C.g600,marginTop:20}}>
+          No account? <Link href="/auth/signup" style={{color:C.g900,fontWeight:600,textDecoration:'none'}}>Sign up free</Link>
+        </p>
+        <p style={{textAlign:'center',fontSize:12,color:'#9ca3af',marginTop:8}}>
+          <Link href="/auth/admin-login" style={{color:'#9ca3af',textDecoration:'none'}}>Admin login</Link>
+          {' Â· '}
+          <Link href="/" style={{color:'#9ca3af',textDecoration:'none'}}>â† Home</Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\auth\signup\page.tsx ===
+'use client'
+import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',
+  g800:'#166534',g900:'#14532d',g950:'#052e16',white:'#ffffff',
+  serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+const inp = {width:'100%',padding:'10px 14px',border:`1px solid #dcfce7`,borderRadius:8,fontSize:14,color:'#14532d',fontFamily:C.sans,outline:'none',boxSizing:'border-box' as const,background:'white'}
+const lbl = {display:'block' as const,fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}
+
+export default function SignupPage() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const defaultRole = (params.get('role') as 'contractor'|'consultant') ?? 'contractor'
+  const [role, setRole] = useState<'contractor'|'consultant'>(defaultRole)
+  const [form, setForm] = useState({ full_name:'', email:'', password:'', company_name:'', phone:'', sacpcmp_number:'', cidb_number:'' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (k:string) => (e:React.ChangeEvent<HTMLInputElement>) => setForm(f => ({...f,[k]:e.target.value}))
+
+  const handleSignup = async (e:React.FormEvent) => {
+    e.preventDefault(); setLoading(true); setError('')
+    const supabase = createClient()
+    const { data: authData, error: authErr } = await supabase.auth.signUp({
+      email: form.email, password: form.password,
+      options: { data: { full_name: form.full_name, role } }
+    })
+    if (authErr) { setError(authErr.message); setLoading(false); return }
+    if (!authData.user) { setError('Signup failed â€” please try again.'); setLoading(false); return }
+    const uid = authData.user.id
+    await supabase.from('profiles').insert({ id:uid, role, full_name:form.full_name, company_name:form.company_name||null, phone:form.phone||null })
+    if (role==='contractor') { await supabase.from('contractors').insert({ id:uid, cidb_number:form.cidb_number||null }) }
+    else { await supabase.from('consultants').insert({ id:uid, sacpcmp_number:form.sacpcmp_number, verification_status:'pending' }) }
+    router.push(`/${role}`); router.refresh()
+  }
+
+  return (
+    <div style={{minHeight:'100vh',background:C.g950,display:'flex',alignItems:'center',justifyContent:'center',padding:24,fontFamily:C.sans}}>
+      <div style={{background:C.white,borderRadius:20,padding:'40px 36px',width:'100%',maxWidth:440}}>
+        <Link href="/" style={{display:'flex',alignItems:'center',gap:8,textDecoration:'none',marginBottom:28}}>
+          <svg width="30" height="30" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="8" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.g900,fontSize:17}}>ProtekFlow</span>
+        </Link>
+
+        <div style={{display:'flex',gap:6,marginBottom:24,background:C.g50,borderRadius:10,padding:4}}>
+          {(['contractor','consultant'] as const).map(r => (
+            <button key={r} onClick={() => setRole(r)} style={{flex:1,padding:'8px 4px',borderRadius:8,border:'none',fontSize:13,fontWeight:500,cursor:'pointer',background:role===r?C.g900:C.g50,color:role===r?C.white:C.g700,fontFamily:C.sans,textTransform:'capitalize'}}>
+              {r}
+            </button>
+          ))}
+        </div>
+
+        <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:700,color:C.g900,margin:'0 0 4px'}}>Create account</h1>
+        <p style={{fontSize:13,color:C.g600,margin:'0 0 24px'}}>
+          {role==='contractor' ? 'Get your SHE file in 48 hours â€” R4,500 fixed fee' : 'Start earning R3,375â€“R3,825 per signed SHE file'}
+        </p>
+
+        <form onSubmit={handleSignup} style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div><label style={lbl}>Full name</label><input style={inp} type="text" placeholder="Your full name" value={form.full_name} onChange={set('full_name')} required /></div>
+          <div><label style={lbl}>Company / trading name</label><input style={inp} type="text" placeholder="Mkabile Construction CC" value={form.company_name} onChange={set('company_name')} /></div>
+          <div><label style={lbl}>Email address</label><input style={inp} type="email" placeholder="you@example.com" value={form.email} onChange={set('email')} required /></div>
+
+          {role==='consultant' && (
+            <div>
+              <label style={lbl}>SACPCMP registration number *</label>
+              <input style={inp} type="text" placeholder="e.g. CHSO-12345" value={form.sacpcmp_number} onChange={set('sacpcmp_number')} required />
+              <p style={{fontSize:11,color:C.g500,margin:'4px 0 0'}}>Verified against the SACPCMP public register before first assignment.</p>
+            </div>
+          )}
+          {role==='contractor' && (
+            <div><label style={lbl}>CIDB number (optional)</label><input style={inp} type="text" placeholder="Your CIDB registration number" value={form.cidb_number} onChange={set('cidb_number')} /></div>
+          )}
+          <div><label style={lbl}>Password</label><input style={inp} type="password" placeholder="At least 8 characters" value={form.password} onChange={set('password')} required minLength={8} /></div>
+
+          {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>
+            {loading?'Creating accountâ€¦':'Create account â†’'}
+          </button>
+        </form>
+
+        <p style={{textAlign:'center',fontSize:13,color:C.g600,marginTop:20}}>
+          Already registered? <Link href="/auth/login" style={{color:C.g900,fontWeight:600,textDecoration:'none'}}>Log in</Link>
+        </p>
+        <p style={{textAlign:'center',fontSize:12,color:'#9ca3af',marginTop:6}}>
+          <Link href="/" style={{color:'#9ca3af',textDecoration:'none'}}>â† Back to home</Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\consultant\files\review\page.tsx ===
+'use client'
+// src/app/consultant/files/[id]/page.tsx
+// Consultant reviews the SHE file and triggers DocuSeal signing
+
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
+
+export default function ConsultantFileReview() {
+  const router = useRouter()
+  const { id } = useParams<{ id: string }>()
+  const [file, setFile] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [signing, setSigning] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/files/${id}`)
+      .then(r => r.json())
+      .then(d => { setFile(d.file); setLoading(false) })
+      .catch(() => { setError('Failed to load file'); setLoading(false) })
+  }, [id])
+
+  const handleSign = async () => {
+    setSigning(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/files/${id}/sign`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Failed to initiate signing'); setSigning(false); return }
+      // Redirect consultant to DocuSeal signing page
+      window.location.href = data.signing_url
+    } catch {
+      setError('Network error â€” please try again.')
+      setSigning(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="min-h-screen bg-brand-50 flex items-center justify-center">
+      <div className="text-brand-500">Loading fileâ€¦</div>
+    </div>
+  )
+
+  if (!file) return (
+    <div className="min-h-screen bg-brand-50 flex items-center justify-center">
+      <div className="text-red-500">{error || 'File not found'}</div>
+    </div>
+  )
+
+  const sections = [
+    { key: 'project_overview',      label: 'Project overview' },
+    { key: 'hazard_identification',  label: 'Hazard identification (CR2014 Reg 9)' },
+    { key: 'emergency_plan',         label: 'Emergency preparedness plan' },
+    { key: 'incident_reporting',     label: 'Incident reporting procedure' },
+    { key: 'ppe_register',           label: 'PPE register & issuance' },
+    { key: 'first_aid',              label: 'First aid arrangements' },
+    { key: 'induction_records',      label: 'Site induction records' },
+    { key: 'subcontractor_info',     label: 'Subcontractor OHS info' },
+  ]
+
+  return (
+    <div className="min-h-screen bg-brand-50">
+      <header className="bg-brand-900 px-8 py-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-brand-500 rounded-md flex items-center justify-center font-bold text-xs text-brand-900">PF</div>
+          <span className="font-serif font-semibold text-white text-base">ProtekFlow</span>
+          <span className="text-brand-500 text-sm ml-3">/ Review &amp; Sign</span>
+        </div>
+        <Link href="/consultant" className="text-brand-400 text-sm hover:text-white">â† Dashboard</Link>
+      </header>
+
+      <div className="max-w-3xl mx-auto px-6 py-8">
+        {/* File header */}
+        <div className="dash-card mb-5">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="font-mono text-xs text-brand-400 mb-1">{file.file_number}</div>
+              <h1 className="font-serif text-xl font-semibold text-brand-900">{file.project_name}</h1>
+              <p className="text-brand-500 text-sm mt-1">{file.project_address}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-brand-400 mb-1">48h SLA deadline</div>
+              <div className="font-semibold text-brand-800 text-sm">
+                {file.sla_deadline
+                  ? new Date(file.sla_deadline).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })
+                  : 'â€”'}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-sm border-t border-brand-100 pt-4">
+            {[
+              ['Contractor',   file.contractor_name ?? 'â€”'],
+              ['Project value',file.project_value ? `R${Number(file.project_value).toLocaleString()}` : 'â€”'],
+              ['Client',       file.client_name ?? 'â€”'],
+            ].map(([k,v]) => (
+              <div key={k}>
+                <div className="text-xs text-brand-400 mb-0.5">{k}</div>
+                <div className="font-medium text-brand-800">{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* SHE file sections checklist */}
+        <div className="dash-card mb-5">
+          <h2 className="font-semibold text-brand-900 mb-4">SHE file sections â€” review each before signing</h2>
+          <div className="space-y-2">
+            {sections.map((s, i) => (
+              <div key={s.key}
+                className="flex items-center justify-between p-3 rounded-lg bg-brand-50 border border-brand-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full bg-brand-200 text-brand-600 flex items-center justify-center text-xs font-bold">
+                    {i + 1}
+                  </div>
+                  <span className="text-sm text-brand-800 font-medium">{s.label}</span>
+                </div>
+                <span className="text-xs text-brand-500">Auto-generated âœ“</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-brand-400 mt-4">
+            These sections were generated by ProtekFlow AI based on the contractor's project details. As the SACPCMP-registered professional, you are responsible for reviewing, customising, and certifying the content before signing.
+          </p>
+        </div>
+
+        {/* Legal attestation */}
+        <div className="bg-brand-900 text-white rounded-xl p-6 mb-5">
+          <h3 className="font-semibold mb-3 text-brand-200">Professional attestation</h3>
+          <p className="text-brand-300 text-sm leading-relaxed mb-4">
+            By clicking "Sign via DocuSeal" below, you confirm that you are a SACPCMP-registered Health and Safety professional, that you have reviewed and are satisfied with the contents of this SHE file, that the file complies with the requirements of the OHS Act 85/1993 and Construction Regulations 2014, and that you accept professional responsibility for the signed document.
+          </p>
+          <div className="flex items-start gap-3">
+            <input type="checkbox" id="attest" className="mt-1 accent-brand-500" />
+            <label htmlFor="attest" className="text-brand-300 text-sm cursor-pointer">
+              I confirm the above attestation and accept professional responsibility for this SHE file.
+            </label>
+          </div>
+        </div>
+
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">{error}</div>}
+
+        <div className="flex items-center justify-between">
+          <Link href="/consultant" className="btn-secondary">â† Back to dashboard</Link>
+          <button onClick={handleSign} disabled={signing}
+            className="bg-brand-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-60">
+            {signing ? 'Opening DocuSealâ€¦' : 'Sign via DocuSeal â†’'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\consultant\files\[id]\page.tsx ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\consultant\page.tsx ===
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { formatZAR, splitRevenue, type ConsultantTier } from '@/lib/pricing'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g200:'#bbf7d0',g300:'#86efac',g400:'#4ade80',
+  g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g800:'#166534',g900:'#14532d',g950:'#052e16',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+interface SheFileRow {
+  id:string; file_number:string; project_name:string; status:string
+  price_zar:number; sla_deadline:string|null; completed_at:string|null
+  contractor:{ full_name:string; company_name:string|null }|null
+}
+
+export default async function ConsultantDashboard() {
+  const supabase = createServerSupabaseClient()
+  const { data:{ user } } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/login')
+
+  const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single()
+  const { data: consultant } = await supabase.from('consultants').select('*').eq('id', user.id).single()
+  if (!consultant) redirect('/auth/login')
+
+  const { data: rawFiles } = await supabase
+    .from('she_files')
+    .select('*, contractor:profiles!she_files_contractor_id_fkey(full_name,company_name)')
+    .eq('consultant_id', user.id).order('created_at',{ascending:false})
+
+  const files = (rawFiles??[]) as SheFileRow[]
+  const pending = files.filter((f:SheFileRow) => ['paid','matched','in_review'].includes(f.status))
+  const thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0)
+  const completedThisMonth = files.filter((f:SheFileRow) =>
+    f.status==='completed' && f.completed_at && new Date(f.completed_at)>=thisMonth
+  )
+  const earningsThisMonth = completedThisMonth.reduce((sum:number,f:SheFileRow) => {
+    const { consultantAmount } = splitRevenue(f.price_zar, consultant.tier as ConsultantTier)
+    return sum + consultantAmount
+  }, 0)
+  const isPro = consultant.tier === 'pro'
+  const isPending = consultant.verification_status === 'pending'
+
+  return (
+    <div style={{fontFamily:C.sans,minHeight:'100vh',background:C.g50}}>
+      <header style={{background:C.g900,padding:'0 28px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <svg width="28" height="28" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="7" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:17}}>ProtekFlow</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          {isPro && <span style={{background:C.g500,color:C.g950,fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20}}>PRO</span>}
+          <span style={{color:C.g400,fontSize:13}}>{profile?.full_name} Â· {consultant.sacpcmp_number}</span>
+          <Link href="/" style={{color:C.g600,fontSize:12,textDecoration:'none',border:`1px solid ${C.g800}`,padding:'4px 12px',borderRadius:6}}>Sign out</Link>
+        </div>
+      </header>
+
+      {/* Verification banner */}
+      {isPending && (
+        <div style={{background:'#fef3c7',borderBottom:'1px solid #fde68a',padding:'10px 28px',fontSize:13,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:15}}>â³</span>
+          Your SACPCMP registration is being verified. You will be notified by email once approved.
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'200px 1fr',minHeight:'calc(100vh - 52px)'}}>
+        <aside style={{background:C.g900,paddingTop:8}}>
+          {[
+            {href:'/consultant',          label:'Dashboard',    icon:'âŠž'},
+            {href:'/consultant/files',    label:'Pending files', icon:'âŠŸ'},
+            {href:'/consultant/completed',label:'Completed',    icon:'âœ“'},
+            {href:'/consultant/earnings', label:'Earnings',     icon:'â—ˆ'},
+            {href:'/consultant/settings', label:'Settings',     icon:'âŠ™'},
+          ].map(item => (
+            <Link key={item.href} href={item.href} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 20px',fontSize:13,color:C.g300,textDecoration:'none',borderLeft:'3px solid transparent'}}>
+              <span style={{fontSize:14,opacity:0.7}}>{item.icon}</span>{item.label}
+            </Link>
+          ))}
+        </aside>
+
+        <main style={{padding:32}}>
+          <div style={{marginBottom:28}}>
+            <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:600,color:C.g900,margin:'0 0 4px'}}>
+              Dashboard {isPro && <span style={{fontFamily:C.sans,fontSize:13,fontWeight:400,color:C.g600,marginLeft:8}}>Pro tier</span>}
+            </h1>
+            <p style={{fontSize:13,color:C.g600,margin:0}}>SACPCMP Reg: {consultant.sacpcmp_number}</p>
+          </div>
+
+          {/* Stats */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}}>
+            {[
+              {label:'Pending files',    value:pending.length.toString(),            note:pending.length>0?'Action required':'All clear'},
+              {label:'Files this month', value:completedThisMonth.length.toString(), note:isPro?'Unlimited cap':'10 max (Free)'},
+              {label:'Earnings (month)', value:formatZAR(earningsThisMonth),         note:isPro?'After 15% platform fee':'25% platform fee'},
+              {label:'Rating',           value:consultant.rating_avg>0?`${consultant.rating_avg}/5`:'â€”', note:`${consultant.rating_count} reviews`},
+            ].map(s => (
+              <div key={s.label} style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:12,padding:'16px 20px'}}>
+                <div style={{fontSize:12,color:C.g600,marginBottom:6}}>{s.label}</div>
+                <div style={{fontFamily:C.serif,fontSize:26,fontWeight:700,color:C.g900,lineHeight:1}}>{s.value}</div>
+                {s.note && <div style={{fontSize:11,color:C.g500,marginTop:4}}>{s.note}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* Pending files */}
+          <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24,marginBottom:20}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+              <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:0}}>Files requiring action</h2>
+              <span style={{fontSize:12,color:C.g500}}>48h SLA from payment</span>
+            </div>
+            {pending.length===0 ? (
+              <p style={{fontSize:14,color:C.g400,textAlign:'center',padding:'24px 0'}}>No files pending â€” you&apos;re up to date.</p>
+            ) : (
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.g100}`}}>
+                      {['File','Project','Contractor','Your earn','Deadline','Action'].map(h => (
+                        <th key={h} style={{textAlign:'left',padding:'8px 12px',color:C.g500,fontWeight:500,fontSize:12}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pending.map((f:SheFileRow) => {
+                      const { consultantAmount } = splitRevenue(f.price_zar, consultant.tier as ConsultantTier)
+                      const deadline = f.sla_deadline ? new Date(f.sla_deadline) : null
+                      const overdue  = deadline && deadline < new Date()
+                      return (
+                        <tr key={f.id} style={{borderBottom:`1px solid ${C.g50}`}}>
+                          <td style={{padding:'11px 12px',fontFamily:'monospace',fontSize:12,fontWeight:600}}>{f.file_number}</td>
+                          <td style={{padding:'11px 12px',fontWeight:500,color:C.g800}}>{f.project_name}</td>
+                          <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>{(f.contractor as any)?.company_name??(f.contractor as any)?.full_name}</td>
+                          <td style={{padding:'11px 12px',fontWeight:700,color:C.g700}}>{formatZAR(consultantAmount)}</td>
+                          <td style={{padding:'11px 12px',fontSize:12,color:overdue?'#ef4444':C.g600}}>
+                            {deadline ? deadline.toLocaleString('en-ZA',{dateStyle:'short',timeStyle:'short'}) : 'â€”'}
+                          </td>
+                          <td style={{padding:'11px 12px'}}>
+                            <Link href={`/consultant/files/${f.id}`} style={{background:C.g900,color:C.white,fontSize:12,fontWeight:600,padding:'6px 14px',borderRadius:8,textDecoration:'none'}}>
+                              Review & Sign â†’
+                            </Link>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pro upsell */}
+          {!isPro && (
+            <div style={{background:C.g900,borderRadius:14,padding:'20px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}}>
+              <div>
+                <div style={{fontFamily:C.serif,fontSize:17,fontWeight:600,color:C.white,marginBottom:4}}>Upgrade to Pro â€” R999/month</div>
+                <div style={{fontSize:13,color:C.g300}}>Earn R3,825/file Â· Weekly payouts Â· Unlimited files. Pays for itself at 3 files/month.</div>
+              </div>
+              <Link href="/consultant/settings" style={{background:C.g500,color:C.g950,fontWeight:700,padding:'10px 22px',borderRadius:10,textDecoration:'none',fontSize:13,flexShrink:0}}>Go Pro â†’</Link>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\contractor\files\[id]\page.tsx ===
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\contractor\new-file\page.tsx ===
+'use client'
+// src/app/contractor/new-file/page.tsx
+// Multi-step intake wizard for submitting a new SHE file
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { formatZAR, PRICING } from '@/lib/pricing'
+
+type Step = 1 | 2 | 3 | 4
+
+const STEPS = [
+  { n: 1, label: 'Project details' },
+  { n: 2, label: 'Site & contacts' },
+  { n: 3, label: 'Volume & pricing' },
+  { n: 4, label: 'Review & pay' },
+]
+
+export default function NewFilePage() {
+  const router = useRouter()
+  const [step, setStep] = useState<Step>(1)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const [form, setForm] = useState({
+    project_name:         '',
+    project_value:        '',
+    project_start_date:   '',
+    project_end_date:     '',
+    project_address:      '',
+    principal_contractor: '',
+    client_name:          '',
+    site_agent:           '',
+    volume_tier:          'standard' as 'standard'|'volume_a'|'volume_b'|'volume_c',
+  })
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const PRICE_MAP = {
+    standard: PRICING.FILE_STANDARD,
+    volume_a: PRICING.FILE_VOLUME_A,
+    volume_b: PRICING.FILE_VOLUME_B,
+    volume_c: PRICING.FILE_VOLUME_C,
+  }
+
+  const price = PRICE_MAP[form.volume_tier]
+
+  const handleSubmit = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/files/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          project_value: form.project_value ? parseFloat(form.project_value) : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Something went wrong'); setLoading(false); return }
+
+      // Build and submit PayFast form programmatically
+      const { payment } = data
+      const pf = document.createElement('form')
+      pf.method = 'POST'
+      pf.action = payment.payfast_url
+
+      Object.entries(payment).forEach(([k, v]) => {
+        if (k === 'payfast_url') return
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = k
+        input.value = String(v)
+        pf.appendChild(input)
+      })
+
+      document.body.appendChild(pf)
+      pf.submit()
+    } catch {
+      setError('Network error â€” please try again.')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-brand-50">
+      <header className="bg-brand-900 px-8 py-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-brand-500 rounded-md flex items-center justify-center font-bold text-xs text-brand-900">PF</div>
+          <span className="font-serif font-semibold text-white text-base">ProtekFlow</span>
+        </div>
+        <Link href="/contractor" className="text-brand-400 text-sm hover:text-white">â† Back to dashboard</Link>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-6 py-10">
+        {/* Step progress */}
+        <div className="flex items-center gap-2 mb-10">
+          {STEPS.map((s, i) => (
+            <div key={s.n} className="flex items-center gap-2 flex-1">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                step > s.n ? 'bg-brand-500 text-white'
+                : step === s.n ? 'bg-brand-900 text-white'
+                : 'bg-brand-200 text-brand-500'
+              }`}>{step > s.n ? 'âœ“' : s.n}</div>
+              <span className={`text-xs hidden sm:block ${step === s.n ? 'text-brand-900 font-medium' : 'text-brand-400'}`}>
+                {s.label}
+              </span>
+              {i < STEPS.length - 1 && <div className={`flex-1 h-px ${step > s.n ? 'bg-brand-500' : 'bg-brand-200'}`} />}
+            </div>
+          ))}
+        </div>
+
+        <div className="dash-card">
+
+          {/* STEP 1 */}
+          {step === 1 && (
+            <div className="space-y-5">
+              <h2 className="font-serif text-xl font-semibold text-brand-900">Project details</h2>
+              <div>
+                <label className="form-label">Project name <span className="text-red-500">*</span></label>
+                <input className="form-input" type="text" placeholder="e.g. Sakhisizwe Clinic Extension Phase 2" value={form.project_name} onChange={set('project_name')} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Project value (ZAR)</label>
+                  <input className="form-input" type="number" placeholder="e.g. 1500000" value={form.project_value} onChange={set('project_value')} />
+                </div>
+                <div>
+                  <label className="form-label">Client / employer name</label>
+                  <input className="form-input" type="text" placeholder="e.g. Sakhisizwe Municipality" value={form.client_name} onChange={set('client_name')} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Start date</label>
+                  <input className="form-input" type="date" value={form.project_start_date} onChange={set('project_start_date')} />
+                </div>
+                <div>
+                  <label className="form-label">End date</label>
+                  <input className="form-input" type="date" value={form.project_end_date} onChange={set('project_end_date')} />
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button onClick={() => setStep(2)} disabled={!form.project_name}
+                  className="btn-primary disabled:opacity-50">
+                  Continue â†’
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2 */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <h2 className="font-serif text-xl font-semibold text-brand-900">Site &amp; contacts</h2>
+              <div>
+                <label className="form-label">Site address <span className="text-red-500">*</span></label>
+                <input className="form-input" type="text" placeholder="e.g. Erf 123, Hospital Street, Cala, Eastern Cape" value={form.project_address} onChange={set('project_address')} />
+              </div>
+              <div>
+                <label className="form-label">Principal contractor (if different from you)</label>
+                <input className="form-input" type="text" placeholder="Company name" value={form.principal_contractor} onChange={set('principal_contractor')} />
+              </div>
+              <div>
+                <label className="form-label">Site agent / construction manager</label>
+                <input className="form-input" type="text" placeholder="Full name" value={form.site_agent} onChange={set('site_agent')} />
+              </div>
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(1)} className="btn-secondary">â† Back</button>
+                <button onClick={() => setStep(3)} disabled={!form.project_address} className="btn-primary disabled:opacity-50">Continue â†’</button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3 â€” Volume tier selection */}
+          {step === 3 && (
+            <div className="space-y-5">
+              <h2 className="font-serif text-xl font-semibold text-brand-900">Volume &amp; pricing</h2>
+              <p className="text-brand-600 text-sm">How many SHE files do you expect to need from the same consultant this year?</p>
+              <div className="space-y-3">
+                {[
+                  { tier: 'standard', label: '1â€“2 files',  price: PRICING.FILE_STANDARD, desc: 'Standard rate' },
+                  { tier: 'volume_a', label: '3â€“5 files',  price: PRICING.FILE_VOLUME_A, desc: 'Volume A â€” save R375/file' },
+                  { tier: 'volume_b', label: '6â€“11 files', price: PRICING.FILE_VOLUME_B, desc: 'Volume B â€” save R875/file' },
+                  { tier: 'volume_c', label: '12+ files',  price: PRICING.FILE_VOLUME_C, desc: 'Volume C â€” save R1,375/file' },
+                ].map(opt => (
+                  <label key={opt.tier}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      form.volume_tier === opt.tier ? 'border-brand-600 bg-brand-50' : 'border-brand-100 hover:border-brand-300'
+                    }`}>
+                    <div className="flex items-center gap-3">
+                      <input type="radio" name="volume_tier" value={opt.tier}
+                        checked={form.volume_tier === opt.tier}
+                        onChange={set('volume_tier')} className="accent-brand-600" />
+                      <div>
+                        <div className="font-medium text-brand-900 text-sm">{opt.label}</div>
+                        <div className="text-xs text-brand-500">{opt.desc}</div>
+                      </div>
+                    </div>
+                    <div className="font-serif font-bold text-brand-900 text-lg">{formatZAR(opt.price)}</div>
+                  </label>
+                ))}
+              </div>
+              <div className="bg-brand-50 rounded-xl p-4 text-sm text-brand-600">
+                <strong className="text-brand-800">Volume discounts</strong> are offered at the consultant's discretion. Selecting a higher volume tier signals to your matched consultant that you have multiple projects â€” they may offer the discounted rate.
+              </div>
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(2)} className="btn-secondary">â† Back</button>
+                <button onClick={() => setStep(4)} className="btn-primary">Review & pay â†’</button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4 â€” Review */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <h2 className="font-serif text-xl font-semibold text-brand-900">Review &amp; pay</h2>
+              <div className="bg-brand-50 rounded-xl p-5 space-y-2 text-sm">
+                {[
+                  ['Project',       form.project_name],
+                  ['Site address',  form.project_address],
+                  ['Client',        form.client_name || 'â€”'],
+                  ['Site agent',    form.site_agent || 'â€”'],
+                  ['Volume tier',   form.volume_tier.replace('_', ' ')],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex justify-between">
+                    <span className="text-brand-500">{k}</span>
+                    <span className="text-brand-900 font-medium text-right max-w-[60%]">{v}</span>
+                  </div>
+                ))}
+                <div className="border-t border-brand-200 pt-3 mt-3 flex justify-between font-semibold text-base">
+                  <span className="text-brand-700">Total due</span>
+                  <span className="font-serif text-brand-900 text-xl">{formatZAR(price)}</span>
+                </div>
+              </div>
+
+              <div className="bg-brand-900 text-white rounded-xl p-4 text-sm space-y-1.5">
+                <div className="font-semibold text-brand-300 text-xs uppercase tracking-wide mb-2">What's included</div>
+                {['AI-powered SHE file draft','SACPCMP-registered consultant review','DocuSeal e-signature (legally binding)','48-hour guaranteed delivery','Compliant with OHS Act 85/1993 & CR2014'].map(i => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-brand-400 text-xs">âœ“</span>
+                    <span className="text-brand-200">{i}</span>
+                  </div>
+                ))}
+              </div>
+
+              {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+
+              <p className="text-xs text-brand-400 text-center">You will be redirected to PayFast to complete payment. Your SHE file will be queued immediately after payment is confirmed.</p>
+
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(3)} className="btn-secondary">â† Back</button>
+                <button onClick={handleSubmit} disabled={loading}
+                  className="btn-primary disabled:opacity-60">
+                  {loading ? 'Redirecting to PayFastâ€¦' : `Pay ${formatZAR(price)} â†’`}
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\contractor\payment\cancelled\page.tsx ===
+// src/app/contractor/payment/cancelled/page.tsx
+
+import Link from 'next/link'
+
+const C = {
+  g100:'#dcfce7',g500:'#22c55e',g900:'#14532d',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export default function PaymentCancelledPage({ searchParams }: { searchParams: { file?: string } }) {
+  return (
+    <div style={{fontFamily:C.sans,minHeight:'100vh',background:'#1f2937',display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+      <div style={{background:C.white,borderRadius:20,padding:'48px 40px',maxWidth:440,width:'100%',textAlign:'center'}}>
+        <div style={{width:64,height:64,background:'#fee2e2',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:28}}>
+          âœ•
+        </div>
+        <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:700,color:C.g900,margin:'0 0 10px'}}>Payment cancelled</h1>
+        <p style={{fontSize:14,color:'#6b7280',margin:'0 0 28px',lineHeight:1.6}}>
+          No payment was taken. Your SHE file draft has been saved â€” you can complete payment anytime.
+        </p>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {searchParams.file && (
+            <Link href={`/contractor/files/${searchParams.file}`}
+              style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,textDecoration:'none',fontSize:14}}>
+              Complete payment â†’
+            </Link>
+          )}
+          <Link href="/contractor/new-file"
+            style={{background:'transparent',color:C.g900,fontWeight:500,padding:'11px',borderRadius:10,textDecoration:'none',fontSize:14,border:'1px solid #e5e7eb'}}>
+            Start a new file
+          </Link>
+          <Link href="/contractor"
+            style={{color:'#9ca3af',fontSize:13,textDecoration:'none'}}>
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\contractor\payment\success\page.tsx ===
+// src/app/contractor/payment/success/page.tsx
+// PayFast redirects here after successful payment
+
+import Link from 'next/link'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g900:'#14532d',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export default async function PaymentSuccessPage({
+  searchParams
+}: { searchParams: { file?: string } }) {
+  const fileId = searchParams.file ?? null
+
+  return (
+    <div style={{fontFamily:C.sans,minHeight:'100vh',background:C.g900,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+      <div style={{background:C.white,borderRadius:20,padding:'48px 40px',maxWidth:480,width:'100%',textAlign:'center'}}>
+        {/* Animated shield check */}
+        <div style={{width:72,height:72,background:C.g50,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px'}}>
+          <svg width="40" height="40" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="8" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+
+        <h1 style={{fontFamily:C.serif,fontSize:26,fontWeight:700,color:C.g900,margin:'0 0 10px'}}>Payment received!</h1>
+        <p style={{fontSize:15,color:C.g600,margin:'0 0 28px',lineHeight:1.6}}>
+          Your SHE file is in the queue. A verified SACPCMP consultant will review and sign it within <strong style={{color:C.g900}}>48 hours</strong>.
+        </p>
+
+        {/* What happens next */}
+        <div style={{background:C.g50,borderRadius:12,padding:'16px 20px',textAlign:'left',marginBottom:28}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.g500,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:12}}>What happens next</div>
+          {[
+            ['ðŸ¤–','AI draft generated','Your project details are being filled into the SHE file template right now.'],
+            ['ðŸ”','Consultant matched','A verified SACPCMP professional is being assigned to your file.'],
+            ['âœï¸','Review & e-sign','Your consultant reviews, customises, and signs via DocuSeal.'],
+            ['ðŸ“„','Delivered to you','You receive your signed, compliant SHE file by email and in your dashboard.'],
+          ].map(([icon,title,desc]) => (
+            <div key={String(title)} style={{display:'flex',gap:12,marginBottom:12,alignItems:'flex-start'}}>
+              <span style={{fontSize:16,flexShrink:0}}>{icon}</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:C.g900,marginBottom:2}}>{title}</div>
+                <div style={{fontSize:12,color:C.g600,lineHeight:1.5}}>{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {fileId && (
+            <Link href={`/contractor/files/${fileId}`}
+              style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,textDecoration:'none',fontSize:14}}>
+              Track my file â†’
+            </Link>
+          )}
+          <Link href="/contractor"
+            style={{background:'transparent',color:C.g700,fontWeight:500,padding:'11px',borderRadius:10,textDecoration:'none',fontSize:14,border:`1px solid ${C.g200}`}}>
+            Go to dashboard
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\contractor\page.tsx ===
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { formatZAR } from '@/lib/pricing'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g200:'#bbf7d0',g300:'#86efac',g400:'#4ade80',
+  g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g800:'#166534',g900:'#14532d',g950:'#052e16',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+const STATUS: Record<string,{label:string; bg:string; color:string}> = {
+  draft:           {label:'Draft',             bg:'#fef3c7',color:'#92400e'},
+  payment_pending: {label:'Awaiting payment',  bg:'#fef3c7',color:'#92400e'},
+  paid:            {label:'Queued',            bg:'#dbeafe',color:'#1d4ed8'},
+  matched:         {label:'Matched',           bg:'#dbeafe',color:'#1d4ed8'},
+  in_review:       {label:'In review',         bg:'#dbeafe',color:'#1d4ed8'},
+  awaiting_sign:   {label:'Awaiting signature',bg:'#dbeafe',color:'#1d4ed8'},
+  signed:          {label:'Signed',            bg:'#dcfce7',color:'#166534'},
+  completed:       {label:'Completed âœ“',       bg:'#dcfce7',color:'#166534'},
+  cancelled:       {label:'Cancelled',         bg:'#fee2e2',color:'#991b1b'},
+  overdue:         {label:'Overdue',           bg:'#fee2e2',color:'#991b1b'},
+}
+
+const NAV = [
+  {href:'/contractor',           label:'Dashboard',    icon:'âŠž'},
+  {href:'/contractor/new-file',  label:'New SHE file', icon:'+'},
+  {href:'/contractor/files',     label:'My files',     icon:'âŠŸ'},
+  {href:'/contractor/payments',  label:'Payments',     icon:'â—ˆ'},
+  {href:'/contractor/settings',  label:'Settings',     icon:'âŠ™'},
+]
+
+export default async function ContractorDashboard() {
+  const supabase = createServerSupabaseClient()
+  const { data:{ user } } = await supabase.auth.getUser()
+  if (!user) redirect('/auth/login')
+
+  const { data: profile } = await supabase.from('profiles').select('full_name,company_name').eq('id', user.id).single()
+  const { data: files } = await supabase.from('she_files').select('*').eq('contractor_id', user.id).order('created_at',{ascending:false})
+
+  const completed  = files?.filter(f => f.status === 'completed') ?? []
+  const active     = files?.filter(f => !['completed','cancelled'].includes(f.status)) ?? []
+  const totalSpent = completed.reduce((s,f) => s + (f.price_zar??0), 0)
+  const saved      = completed.length * 800000 - totalSpent
+
+  const firstName  = profile?.full_name?.split(' ')[0] ?? 'there'
+
+  return (
+    <div style={{fontFamily:C.sans,minHeight:'100vh',background:C.g50}}>
+      {/* Top bar */}
+      <header style={{background:C.g900,padding:'0 28px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <svg width="28" height="28" viewBox="0 0 34 34" fill="none">
+            <rect width="34" height="34" rx="7" fill={C.g500}/>
+            <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+            <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:17}}>ProtekFlow</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <span style={{color:C.g400,fontSize:13}}>{profile?.company_name ?? profile?.full_name}</span>
+          <Link href="/" style={{color:C.g600,fontSize:12,textDecoration:'none',border:`1px solid ${C.g800}`,padding:'4px 12px',borderRadius:6}}>Sign out</Link>
+        </div>
+      </header>
+
+      <div style={{display:'grid',gridTemplateColumns:'200px 1fr',minHeight:'calc(100vh - 52px)'}}>
+        {/* Sidebar */}
+        <aside style={{background:C.g900,paddingTop:8}}>
+          {NAV.map(item => (
+            <Link key={item.href} href={item.href} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 20px',fontSize:13,color:C.g300,textDecoration:'none',borderLeft:`3px solid transparent`}}>
+              <span style={{fontSize:14,opacity:0.7}}>{item.icon}</span>{item.label}
+            </Link>
+          ))}
+        </aside>
+
+        {/* Main */}
+        <main style={{padding:32}}>
+          {/* Header */}
+          <div style={{marginBottom:28}}>
+            <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:600,color:C.g900,margin:'0 0 4px'}}>Good day, {firstName}</h1>
+            <p style={{fontSize:14,color:C.g600,margin:0}}>Your construction safety compliance dashboard</p>
+          </div>
+
+          {/* Stats */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}}>
+            {[
+              {label:'Total files',    value:(files?.length??0).toString()},
+              {label:'Active',         value:active.length.toString(),      note:active.length>0?'Within 48h SLA':'All clear'},
+              {label:'Total spent',    value:formatZAR(totalSpent),         note:`vs ${formatZAR(completed.length*800000)} market`},
+              {label:'Saved',          value:formatZAR(saved>0?saved:0),   note:'vs independent consultant'},
+            ].map(s => (
+              <div key={s.label} style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:12,padding:'16px 20px'}}>
+                <div style={{fontSize:12,color:C.g600,marginBottom:6}}>{s.label}</div>
+                <div style={{fontFamily:C.serif,fontSize:26,fontWeight:700,color:C.g900,lineHeight:1}}>{s.value}</div>
+                {s.note && <div style={{fontSize:11,color:C.g500,marginTop:4}}>{s.note}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* New file CTA */}
+          {(!files||files.length===0) && (
+            <div style={{background:C.g900,borderRadius:16,padding:40,textAlign:'center',marginBottom:24}}>
+              <div style={{fontFamily:C.serif,fontSize:22,fontWeight:600,color:C.white,marginBottom:8}}>No SHE files yet</div>
+              <p style={{fontSize:14,color:C.g300,marginBottom:24,maxWidth:360,margin:'0 auto 24px'}}>Submit your first project and get a professionally signed SHE file in 48 hours.</p>
+              <Link href="/contractor/new-file" style={{background:C.g500,color:C.g950,fontWeight:700,padding:'12px 28px',borderRadius:10,textDecoration:'none',fontSize:14}}>Start new SHE file â†’</Link>
+            </div>
+          )}
+
+          {/* Files table */}
+          {files && files.length > 0 && (
+            <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+                <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:0}}>My SHE files</h2>
+                <Link href="/contractor/new-file" style={{background:C.g900,color:C.white,fontSize:13,fontWeight:600,padding:'8px 16px',borderRadius:8,textDecoration:'none'}}>+ New file</Link>
+              </div>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${C.g100}`}}>
+                      {['File No.','Project','Submitted','Status','Amount',''].map(h => (
+                        <th key={h} style={{textAlign:'left',padding:'8px 12px',color:C.g500,fontWeight:500,fontSize:12}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {files.map((f:any) => {
+                      const st = STATUS[f.status] ?? STATUS.draft
+                      return (
+                        <tr key={f.id} style={{borderBottom:`1px solid ${C.g50}`}}>
+                          <td style={{padding:'11px 12px',fontFamily:'monospace',fontSize:12,fontWeight:600,color:C.g800}}>{f.file_number}</td>
+                          <td style={{padding:'11px 12px',color:C.g800,fontWeight:500}}>{f.project_name}</td>
+                          <td style={{padding:'11px 12px',color:C.g500,fontSize:12}}>{new Date(f.created_at).toLocaleDateString('en-ZA')}</td>
+                          <td style={{padding:'11px 12px'}}>
+                            <span style={{...st,display:'inline-block',fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20}}>{st.label}</span>
+                          </td>
+                          <td style={{padding:'11px 12px',fontWeight:600,color:C.g900}}>{formatZAR(f.price_zar)}</td>
+                          <td style={{padding:'11px 12px'}}>
+                            {f.status==='completed'&&f.docuseal_document_url ? (
+                              <a href={f.docuseal_document_url} target="_blank" rel="noreferrer" style={{color:C.g700,fontSize:12,fontWeight:600}}>Download â†“</a>
+                            ):(
+                              <Link href={`/contractor/files/${f.id}`} style={{color:C.g500,fontSize:12,textDecoration:'none'}}>View â†’</Link>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\layout.tsx ===
+// src/app/layout.tsx
+import type { Metadata } from 'next'
+import { DM_Sans, Fraunces } from 'next/font/google'
+import './globals.css'
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+})
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+})
+
+export const metadata: Metadata = {
+  title: 'ProtekFlow â€” SHE Files in 48 Hours',
+  description:
+    'Connect with SACPCMP-registered safety consultants. Fixed fee R4,500. Professionally signed SHE file in 48 hours. Compliant with OHS Act 85/1993.',
+  keywords: ['SHE file', 'OHS compliance', 'SACPCMP', 'construction safety', 'South Africa'],
+  openGraph: {
+    title: 'ProtekFlow â€” SHE Files in 48 Hours',
+    description: 'Fixed fee R4,500. SACPCMP-signed. 48-hour delivery.',
+    url: 'https://protekflow.co.za',
+    siteName: 'ProtekFlow',
+    locale: 'en_ZA',
+    type: 'website',
+  },
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en-ZA" className={`${dmSans.variable} ${fraunces.variable}`}>
+      <body className="font-sans bg-brand-50 text-brand-900 antialiased">
+        {children}
+      </body>
+    </html>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\app\page.tsx ===
+import Link from 'next/link'
+
+const C = {
+  g50:'#f0fdf4',g100:'#dcfce7',g200:'#bbf7d0',g300:'#86efac',g400:'#4ade80',
+  g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g800:'#166534',g900:'#14532d',g950:'#052e16',
+  white:'#ffffff', serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+function Logo() {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+        <rect width="34" height="34" rx="8" fill={C.g500}/>
+        <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z"
+              fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+        <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2"
+              strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:18,letterSpacing:'-0.3px'}}>ProtekFlow</span>
+    </div>
+  )
+}
+
+export default function LandingPage() {
+  return (
+    <div style={{fontFamily:C.sans,color:C.g900,background:C.white,minHeight:'100vh'}}>
+
+      {/* NAV */}
+      <nav style={{background:C.g900,padding:'0 40px',height:58,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50}}>
+        <Link href="/" style={{textDecoration:'none'}}><Logo /></Link>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <Link href="/auth/admin-login" style={{color:C.g400,fontSize:13,padding:'6px 14px',textDecoration:'none'}}>Admin</Link>
+          <Link href="/auth/login" style={{color:C.g200,fontSize:13,border:`1px solid ${C.g700}`,padding:'7px 18px',borderRadius:8,textDecoration:'none'}}>Log in</Link>
+          <Link href="/auth/signup" style={{background:C.g500,color:C.g950,fontSize:13,fontWeight:700,padding:'8px 18px',borderRadius:8,textDecoration:'none'}}>Get started</Link>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <section style={{background:C.g900,padding:'96px 40px 80px',textAlign:'center'}}>
+        <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(34,197,94,0.12)',border:'1px solid rgba(34,197,94,0.25)',color:C.g300,fontSize:12,fontWeight:500,padding:'5px 14px',borderRadius:20,marginBottom:24}}>
+          <span style={{width:6,height:6,borderRadius:'50%',background:C.g500,display:'inline-block'}}></span>
+          OHS Act 85/1993 Â· Construction Regulations 2014
+        </div>
+        <h1 style={{fontFamily:C.serif,fontSize:'clamp(38px,5.5vw,64px)',fontWeight:700,color:C.white,lineHeight:1.08,margin:'0 0 20px',maxWidth:760,marginLeft:'auto',marginRight:'auto'}}>
+          Construction safety compliance,<br/><em style={{color:C.g400,fontStyle:'italic'}}>done in 48 hours.</em>
+        </h1>
+        <p style={{color:C.g300,fontSize:17,maxWidth:500,margin:'0 auto 36px',lineHeight:1.65}}>
+          Fixed fee R4,500. SACPCMP-registered consultant. DocuSeal e-signature. Site-ready SHE file.
+        </p>
+        <div style={{display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap'}}>
+          <Link href="/auth/signup" style={{background:C.g500,color:C.g950,fontWeight:700,padding:'14px 32px',borderRadius:12,fontSize:15,textDecoration:'none',letterSpacing:'-0.2px'}}>
+            Get my SHE file â€” R4,500
+          </Link>
+          <Link href="/auth/signup" style={{border:'1px solid rgba(255,255,255,0.2)',color:C.white,fontWeight:500,padding:'14px 28px',borderRadius:12,fontSize:15,textDecoration:'none'}}>
+            I&apos;m a consultant â†’
+          </Link>
+        </div>
+        {/* Trust strip */}
+        <div style={{display:'flex',gap:32,justifyContent:'center',marginTop:48,flexWrap:'wrap'}}>
+          {[['48h','Delivery guarantee'],['R4,500','Fixed. No surprises'],['SACPCMP','Verified consultants'],['100%','OHS Act compliant']].map(([val,label]) => (
+            <div key={label} style={{textAlign:'center'}}>
+              <div style={{fontFamily:C.serif,fontSize:22,fontWeight:700,color:C.g400}}>{val}</div>
+              <div style={{fontSize:12,color:C.g500,marginTop:2}}>{label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section style={{background:C.white,padding:'72px 40px'}}>
+        <div style={{maxWidth:900,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:48}}>
+            <h2 style={{fontFamily:C.serif,fontSize:36,fontWeight:600,color:C.g900,margin:'0 0 8px'}}>From project to signed file</h2>
+            <p style={{color:C.g700,fontSize:15,margin:0}}>Three steps. No back-and-forth. No chasing.</p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:2}}>
+            {[
+              {n:'01',title:'Submit',body:'Complete a 5-minute project intake. We generate your SHE file draft automatically.'},
+              {n:'02',title:'Expert review',body:'A verified SACPCMP consultant reviews, customises, and e-signs via DocuSeal.'},
+              {n:'03',title:'Download',body:'Receive your compliant, signed SHE file. Ready for inspectors, clients, and tenders.'},
+            ].map((s,i) => (
+              <div key={s.n} style={{padding:'36px 32px',borderRight: i<2 ? `1px solid ${C.g100}` : 'none',position:'relative'}}>
+                <div style={{fontFamily:C.serif,fontSize:48,fontWeight:700,color:C.g100,lineHeight:1,marginBottom:12}}>{s.n}</div>
+                <h3 style={{fontSize:18,fontWeight:600,color:C.g900,margin:'0 0 8px'}}>{s.title}</h3>
+                <p style={{fontSize:14,color:C.g700,lineHeight:1.65,margin:0}}>{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* PRICING â€” teaser only */}
+      <section style={{background:C.g50,padding:'72px 40px'}}>
+        <div style={{maxWidth:860,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:48}}>
+            <h2 style={{fontFamily:C.serif,fontSize:36,fontWeight:600,color:C.g900,margin:'0 0 8px'}}>Simple, transparent pricing</h2>
+            <p style={{color:C.g700,fontSize:15,margin:0}}>Independent consultants charge R6,000â€“R20,000. We charge R4,500.</p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:24}}>
+            {/* Contractor card */}
+            <div style={{background:C.g900,borderRadius:20,padding:36,color:C.white}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.g400,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:16}}>For contractors</div>
+              <div style={{fontFamily:C.serif,fontSize:52,fontWeight:700,color:C.white,lineHeight:1,marginBottom:4}}>R4,500</div>
+              <div style={{color:C.g300,fontSize:14,marginBottom:28}}>per SHE file Â· all-inclusive</div>
+              <div style={{borderTop:`1px solid ${C.g800}`,paddingTop:20,display:'flex',flexDirection:'column',gap:10}}>
+                {['AI-drafted SHE file','SACPCMP e-signature','48-hour delivery','Volume discounts available'].map(f => (
+                  <div key={f} style={{display:'flex',alignItems:'center',gap:10,fontSize:14,color:C.g200}}>
+                    <span style={{color:C.g500,fontWeight:700,fontSize:16}}>âœ“</span>{f}
+                  </div>
+                ))}
+              </div>
+              <Link href="/auth/signup" style={{display:'block',textAlign:'center',background:C.g500,color:C.g950,fontWeight:700,padding:'13px 0',borderRadius:10,marginTop:28,textDecoration:'none',fontSize:14}}>
+                Submit a project
+              </Link>
+            </div>
+            {/* Consultant card */}
+            <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:20,padding:36}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.g600,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:16}}>For consultants</div>
+              <div style={{fontFamily:C.serif,fontSize:52,fontWeight:700,color:C.g900,lineHeight:1,marginBottom:4}}>R3,375+</div>
+              <div style={{color:C.g600,fontSize:14,marginBottom:28}}>per completed file Â· Free tier</div>
+              <div style={{background:C.g50,borderRadius:12,padding:'16px 20px',marginBottom:20}}>
+                <div style={{fontSize:12,color:C.g600,marginBottom:4}}>Upgrade to Pro (R999/mo) and earn</div>
+                <div style={{fontFamily:C.serif,fontSize:28,fontWeight:700,color:C.g900}}>R3,825 <span style={{fontSize:14,fontFamily:C.sans,fontWeight:400,color:C.g600}}>per file</span></div>
+                <div style={{fontSize:12,color:C.g600,marginTop:4}}>Pays for itself at 3 files/month</div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                {['Guaranteed lead pipeline','No marketing needed','Weekly payouts (Pro)','Priority matching'].map(f => (
+                  <div key={f} style={{display:'flex',alignItems:'center',gap:10,fontSize:14,color:C.g800}}>
+                    <span style={{color:C.g500,fontWeight:700,fontSize:16}}>âœ“</span>{f}
+                  </div>
+                ))}
+              </div>
+              <Link href="/auth/signup" style={{display:'block',textAlign:'center',background:C.g900,color:C.white,fontWeight:700,padding:'13px 0',borderRadius:10,marginTop:28,textDecoration:'none',fontSize:14}}>
+                Join as consultant
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* COMPLIANCE STRIP */}
+      <section style={{background:C.g800,padding:'36px 40px'}}>
+        <div style={{maxWidth:860,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}}>
+          <div>
+            <div style={{fontFamily:C.serif,fontSize:18,fontWeight:600,color:C.white,marginBottom:4}}>Built for South African compliance</div>
+            <div style={{fontSize:13,color:C.g300}}>OHS Act 85/1993 Â· Construction Regulations 2014 Â· SACPCMP registration required</div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <Link href="/auth/signup" style={{background:C.g500,color:C.g950,fontWeight:700,padding:'11px 24px',borderRadius:10,textDecoration:'none',fontSize:14}}>Start now</Link>
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer style={{background:C.g950,padding:'40px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}}>
+        <div>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+            <svg width="24" height="24" viewBox="0 0 34 34" fill="none">
+              <rect width="34" height="34" rx="8" fill={C.g500}/>
+              <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z" fill="none" stroke={C.g900} strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M13.5 17l2.5 2.5 5-5" stroke={C.g900} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:15}}>ProtekFlow</span>
+          </div>
+          <div style={{fontSize:12,color:C.g500}}>A division of Legacy Landmark (Pty) Ltd Â· East London, Eastern Cape</div>
+        </div>
+        <div style={{display:'flex',gap:20}}>
+          {['Privacy','Terms','Contact'].map(l => (
+            <Link key={l} href="#" style={{fontSize:12,color:C.g600,textDecoration:'none'}}>{l}</Link>
+          ))}
+        </div>
+      </footer>
+
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\components\ui\DashShell.tsx ===
+// Shared dashboard shell â€” nav + sidebar
+'use client'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { Logo } from './Logo'
+import { C } from '@/lib/theme'
+
+interface NavItem { href: string; label: string; icon: string }
+
+interface DashShellProps {
+  nav: NavItem[]
+  topRight: React.ReactNode
+  children: React.ReactNode
+  banner?: React.ReactNode
+}
+
+export function DashShell({ nav, topRight, children, banner }: DashShellProps) {
+  const path = usePathname()
+  return (
+    <div style={{minHeight:'100vh', background:C.g50, fontFamily:C.sans}}>
+      {/* Top bar */}
+      <header style={{background:C.g900, padding:'0 28px', height:52, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+        <Logo variant="light" size="sm" />
+        <div style={{display:'flex', alignItems:'center', gap:12}}>{topRight}</div>
+      </header>
+      {banner}
+      <div style={{display:'grid', gridTemplateColumns:'200px 1fr', minHeight:'calc(100vh - 52px)'}}>
+        {/* Sidebar */}
+        <aside style={{background:C.g900}}>
+          <nav style={{paddingTop:8}}>
+            {nav.map(item => {
+              const active = path === item.href
+              return (
+                <Link key={item.href} href={item.href} style={{
+                  display:'flex', alignItems:'center', gap:10,
+                  padding:'10px 20px', fontSize:13,
+                  color: active ? C.white : C.g300,
+                  background: active ? C.g800 : 'transparent',
+                  borderLeft: active ? `3px solid ${C.g500}` : '3px solid transparent',
+                  textDecoration:'none', transition:'all 0.1s',
+                }}>
+                  <span style={{fontSize:15}}>{item.icon}</span>
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+        </aside>
+        <main style={{padding:32, overflowX:'auto'}}>{children}</main>
+      </div>
+    </div>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\components\ui\Logo.tsx ===
+// Refined ProtekFlow logo â€” SVG shield mark
+import Link from 'next/link'
+
+interface LogoProps {
+  variant?: 'light' | 'dark'
+  size?: 'sm' | 'md' | 'lg'
+  href?: string
+}
+
+export function Logo({ variant = 'light', size = 'md', href = '/' }: LogoProps) {
+  const dim = size === 'sm' ? 28 : size === 'lg' ? 40 : 34
+  const fs  = size === 'sm' ? 16 : size === 'lg' ? 22 : 18
+  const nameColor = variant === 'light' ? '#ffffff' : '#14532d'
+
+  const mark = (
+    <div style={{display:'flex', alignItems:'center', gap: size === 'sm' ? 8 : 10}}>
+      {/* SVG shield mark */}
+      <svg width={dim} height={dim} viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="34" height="34" rx="8" fill="#22c55e"/>
+        {/* Shield path */}
+        <path d="M17 6L8 10v7c0 4.97 3.84 9.63 9 10.75C22.16 26.63 26 21.97 26 17v-7L17 6z"
+              fill="#14532d" opacity="0.15"/>
+        <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z"
+              fill="none" stroke="#14532d" strokeWidth="1.5" strokeLinejoin="round"/>
+        {/* Tick inside shield */}
+        <path d="M13.5 17l2.5 2.5 5-5" stroke="#14532d" strokeWidth="2"
+              strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <span style={{fontFamily:"'Fraunces',Georgia,serif", fontWeight:600, color:nameColor, fontSize:fs, letterSpacing:'-0.3px'}}>
+        ProtekFlow
+      </span>
+    </div>
+  )
+
+  return href ? <Link href={href} style={{textDecoration:'none'}}>{mark}</Link> : mark
+}
+
+// Compact icon-only mark for sidebar / favicon
+export function LogoMark({ size = 34 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="34" height="34" rx="8" fill="#22c55e"/>
+      <path d="M17 7.5L9 11v6c0 4.42 3.41 8.57 8 9.57 4.59-1 8-5.15 8-9.57v-6L17 7.5z"
+            fill="none" stroke="#14532d" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M13.5 17l2.5 2.5 5-5" stroke="#14532d" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\docuseal.ts ===
+// src/lib/docuseal.ts
+// DocuSeal e-signature integration for SHE file signing
+// Docs: https://www.docuseal.co/docs/api
+
+const DOCUSEAL_URL = process.env.DOCUSEAL_URL || 'https://api.docuseal.co'
+const DOCUSEAL_API_KEY = process.env.DOCUSEAL_API_KEY!
+const SHE_TEMPLATE_ID = process.env.DOCUSEAL_SHE_TEMPLATE_ID!
+
+interface DocuSealSubmitter {
+  email: string
+  name: string
+  role: string       // must match role name in DocuSeal template
+  values?: Record<string, string>  // pre-fill template fields
+}
+
+interface CreateSubmissionParams {
+  templateId?: string
+  submitters: DocuSealSubmitter[]
+  sendEmail?: boolean
+  completionRedirectUrl?: string
+  // Pre-filled field values mapped to DocuSeal field names
+  prefill?: Record<string, string>
+}
+
+interface DocuSealSubmission {
+  id: number
+  status: string
+  url: string          // signing URL to embed or redirect to
+  documents: Array<{ id: number; url: string }>
+}
+
+/** Headers used on every DocuSeal request */
+function docusealHeaders() {
+  return {
+    'X-Auth-Token': DOCUSEAL_API_KEY,
+    'Content-Type': 'application/json',
+  }
+}
+
+/**
+ * Creates a DocuSeal submission for a SHE file.
+ * Call this when the consultant clicks "Review & Sign" â€” after the
+ * SHE file draft has been generated and is ready for professional sign-off.
+ *
+ * @returns submission ID and the signing URL for the consultant
+ */
+export async function createSheFileSubmission(params: {
+  sheFileId: string
+  fileNumber: string
+  projectName: string
+  projectAddress: string
+  consultantEmail: string
+  consultantName: string
+  contractorEmail: string
+  contractorName: string
+  completionWebhookUrl: string
+}): Promise<DocuSealSubmission> {
+  const body = {
+    template_id: SHE_TEMPLATE_ID,
+    send_email: true,
+    // Where DocuSeal sends a POST when all parties have signed
+    completed_redirect_url: params.completionWebhookUrl,
+    submitters: [
+      {
+        email: params.consultantEmail,
+        name: params.consultantName,
+        role: 'Consultant',          // must match role in your DocuSeal template
+        values: {
+          'file_number':     params.fileNumber,
+          'project_name':    params.projectName,
+          'project_address': params.projectAddress,
+          'consultant_name': params.consultantName,
+          'signing_date':    new Date().toLocaleDateString('en-ZA'),
+        },
+        metadata: { she_file_id: params.sheFileId }
+      },
+      {
+        email: params.contractorEmail,
+        name: params.contractorName,
+        role: 'Contractor',         // receives a copy; may not need to sign
+        send_email: true,
+      }
+    ]
+  }
+
+  const res = await fetch(`${DOCUSEAL_URL}/submissions`, {
+    method: 'POST',
+    headers: docusealHeaders(),
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`DocuSeal submission creation failed: ${err}`)
+  }
+
+  return res.json()
+}
+
+/**
+ * Gets the current status and document URLs for a submission.
+ * Poll this or use the webhook (preferred).
+ */
+export async function getSubmission(submissionId: string): Promise<DocuSealSubmission> {
+  const res = await fetch(`${DOCUSEAL_URL}/submissions/${submissionId}`, {
+    headers: docusealHeaders(),
+  })
+  if (!res.ok) throw new Error(`DocuSeal getSubmission failed: ${res.status}`)
+  return res.json()
+}
+
+/**
+ * Gets the signed document download URL.
+ * Call this after status === 'completed'.
+ */
+export async function getSignedDocumentUrl(submissionId: string): Promise<string | null> {
+  const submission = await getSubmission(submissionId)
+  if (submission.status !== 'completed') return null
+  return submission.documents?.[0]?.url ?? null
+}
+
+/**
+ * Webhook handler â€” call this from /api/docuseal/webhook
+ * DocuSeal POSTs here when signing is complete.
+ *
+ * Body shape (DocuSeal webhook):
+ * { event_type: 'form.completed', data: { id, status, documents: [...] } }
+ */
+export function parseDocuSealWebhook(body: Record<string, unknown>): {
+  submissionId: string
+  isComplete: boolean
+  documentUrl: string | null
+} {
+  const data = body.data as DocuSealSubmission
+  return {
+    submissionId: String(data.id),
+    isComplete: data.status === 'completed',
+    documentUrl: data.documents?.[0]?.url ?? null,
+  }
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\payfast.ts ===
+// src/lib/payfast.ts
+// PayFast payment integration for contractor file payments
+// Docs: https://developers.payfast.co.za/docs
+
+import crypto from 'crypto'
+
+const MERCHANT_ID  = process.env.PAYFAST_MERCHANT_ID!
+const MERCHANT_KEY = process.env.PAYFAST_MERCHANT_KEY!
+const PASSPHRASE   = process.env.PAYFAST_PASSPHRASE!
+const IS_SANDBOX   = process.env.PAYFAST_ENV !== 'production'
+
+const PAYFAST_URL = IS_SANDBOX
+  ? 'https://sandbox.payfast.co.za/eng/process'
+  : 'https://www.payfast.co.za/eng/process'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!
+
+interface PayFastParams {
+  sheFileId: string
+  fileNumber: string
+  contractorEmail: string
+  contractorName: string
+  amountCents: number     // ZAR cents
+}
+
+/**
+ * Builds the PayFast payment data object and generates the MD5 signature.
+ * The returned object can be used to POST to PayFast or render a payment form.
+ */
+export function buildPayFastPayment(params: PayFastParams) {
+  const amountRand = (params.amountCents / 100).toFixed(2)
+
+  const data: Record<string, string> = {
+    merchant_id:       MERCHANT_ID,
+    merchant_key:      MERCHANT_KEY,
+    return_url:        `${APP_URL}/contractor/payment/success?file=${params.sheFileId}`,
+    cancel_url:        `${APP_URL}/contractor/payment/cancelled?file=${params.sheFileId}`,
+    notify_url:        `${APP_URL}/api/payments/notify`,   // ITN webhook
+    name_first:        params.contractorName.split(' ')[0] ?? params.contractorName,
+    name_last:         params.contractorName.split(' ').slice(1).join(' ') || '-',
+    email_address:     params.contractorEmail,
+    m_payment_id:      params.sheFileId,      // our internal ID
+    amount:            amountRand,
+    item_name:         `ProtekFlow SHE File ${params.fileNumber}`,
+    item_description:  'SACPCMP-signed SHE file â€” OHS Act 85/1993',
+    custom_str1:       params.sheFileId,
+  }
+
+  const signature = generateSignature(data)
+  return { ...data, signature, payfast_url: PAYFAST_URL }
+}
+
+/** Generates the MD5 signature PayFast requires */
+function generateSignature(data: Record<string, string>): string {
+  // Build query string in the exact order PayFast expects
+  const queryString = Object.entries(data)
+    .filter(([, v]) => v !== '')
+    .map(([k, v]) => `${k}=${encodeURIComponent(v.trim()).replace(/%20/g, '+')}`)
+    .join('&')
+
+  const stringToSign = PASSPHRASE
+    ? `${queryString}&passphrase=${encodeURIComponent(PASSPHRASE.trim()).replace(/%20/g, '+')}`
+    : queryString
+
+  return crypto.createHash('md5').update(stringToSign).digest('hex')
+}
+
+/**
+ * Validates a PayFast ITN (Instant Transaction Notification) webhook.
+ * Call this in /api/payments/notify BEFORE updating your database.
+ *
+ * Returns true if the ITN is genuine, false if it should be rejected.
+ */
+export async function validateITN(
+  body: Record<string, string>,
+  requestHeaders: Headers
+): Promise<boolean> {
+  // 1. Verify the IP is a PayFast IP
+  const payfastIPs = [
+    '197.97.145.144', '197.97.145.145', '197.97.145.146', '197.97.145.147',
+    // Sandbox
+    '197.97.145.148', '197.97.145.149',
+  ]
+  const requestIP = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim()
+  if (requestIP && !payfastIPs.includes(requestIP) && !IS_SANDBOX) {
+    console.warn('[PayFast ITN] Rejected: IP not in whitelist:', requestIP)
+    return false
+  }
+
+  // 2. Verify signature
+  const { signature: receivedSig, ...dataWithoutSig } = body
+  const expectedSig = generateSignature(dataWithoutSig)
+  if (receivedSig !== expectedSig) {
+    console.warn('[PayFast ITN] Rejected: signature mismatch')
+    return false
+  }
+
+  // 3. Verify with PayFast server (pfValidate)
+  const pfHost = IS_SANDBOX ? 'sandbox.payfast.co.za' : 'www.payfast.co.za'
+  const pfData = Object.entries(body)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v.trim())}`)
+    .join('&')
+
+  const pfResponse = await fetch(`https://${pfHost}/eng/query/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: pfData,
+  })
+  const pfValidation = await pfResponse.text()
+
+  if (pfValidation !== 'VALID') {
+    console.warn('[PayFast ITN] Rejected: PayFast validation response:', pfValidation)
+    return false
+  }
+
+  return true
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\pdf-generator.ts ===
+// src/lib/pdf-generator.ts
+// Generates signed SHE file PDFs entirely in-house â€” no third-party signing service needed
+// Uses pdf-lib for PDF creation and embeds the consultant's canvas signature
+
+import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
+
+export interface SheFileData {
+  fileNumber:       string
+  projectName:      string
+  projectAddress:   string
+  projectValue:     string
+  clientName:       string
+  siteAgent:        string
+  startDate:        string
+  endDate:          string
+  contractorName:   string
+  cidbNumber:       string
+  workerCount:      string
+  highRiskActivities: string
+  projectType:      string
+  // Consultant info
+  consultantName:   string
+  sacpcmpNumber:    string
+  sacpcmpCategory:  string
+  signingDate:      string
+  // The full document text (template with all fields filled in)
+  documentText:     string
+  // Base64 PNG of consultant's drawn signature
+  signatureImageBase64: string
+}
+
+const MARGIN      = 60
+const PAGE_WIDTH  = 595.28   // A4
+const PAGE_HEIGHT = 841.89   // A4
+const LINE_HEIGHT = 14
+const FONT_SIZE   = 9
+const HEADER_SIZE = 11
+const SECTION_SIZE = 10
+
+/** Splits text into lines that fit within maxWidth */
+function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word
+    const width = font.widthOfTextAtSize(test, fontSize)
+    if (width > maxWidth && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = test
+    }
+  }
+  if (current) lines.push(current)
+  return lines
+}
+
+/** Adds a new page with the ProtekFlow header and returns it */
+async function addPage(doc: PDFDocument, boldFont: PDFFont, regularFont: PDFFont, fileNumber: string): Promise<{ page: PDFPage; y: number }> {
+  const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+  const usableWidth = PAGE_WIDTH - MARGIN * 2
+
+  // Header bar
+  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 40, width: PAGE_WIDTH, height: 40, color: rgb(0.08, 0.32, 0.17) })
+  page.drawText('PROTEKFLOW', {
+    x: MARGIN, y: PAGE_HEIGHT - 26,
+    size: 12, font: boldFont, color: rgb(1,1,1),
+  })
+  page.drawText('Health & Safety File  |  OHS Act 85/1993  |  Construction Regulations 2014', {
+    x: MARGIN + 120, y: PAGE_HEIGHT - 26,
+    size: 7.5, font: regularFont, color: rgb(0.7,1,0.7),
+  })
+  page.drawText(fileNumber, {
+    x: PAGE_WIDTH - MARGIN - 80, y: PAGE_HEIGHT - 26,
+    size: 8, font: boldFont, color: rgb(0.7,1,0.7),
+  })
+
+  // Footer
+  page.drawLine({
+    start: { x: MARGIN, y: 30 }, end: { x: PAGE_WIDTH - MARGIN, y: 30 },
+    thickness: 0.5, color: rgb(0.85, 0.97, 0.9),
+  })
+  page.drawText('Legacy Landmark (Pty) Ltd  |  ProtekFlow  |  Confidential', {
+    x: MARGIN, y: 16, size: 7, font: regularFont, color: rgb(0.6,0.6,0.6),
+  })
+  page.drawText(`${doc.getPageCount()}`, {
+    x: PAGE_WIDTH - MARGIN - 10, y: 16, size: 7, font: regularFont, color: rgb(0.6,0.6,0.6),
+  })
+
+  return { page, y: PAGE_HEIGHT - 60 }
+}
+
+/** Main PDF generation function */
+export async function generateSheFilePdf(data: SheFileData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  doc.registerFontkit(fontkit)
+
+  const boldFont    = await doc.embedFont(StandardFonts.HelveticaBold)
+  const regularFont = await doc.embedFont(StandardFonts.Helvetica)
+  const monoFont    = await doc.embedFont(StandardFonts.Courier)
+
+  const usableWidth = PAGE_WIDTH - MARGIN * 2
+  const green       = rgb(0.08, 0.32, 0.17)
+  const lightGreen  = rgb(0.94, 0.99, 0.96)
+  const midGreen    = rgb(0.13, 0.51, 0.28)
+  const black       = rgb(0, 0, 0)
+  const gray        = rgb(0.4, 0.4, 0.4)
+  const red         = rgb(0.8, 0.1, 0.1)
+
+  // â”€â”€ COVER PAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const { page: cover, y: coverY } = await addPage(doc, boldFont, regularFont, data.fileNumber)
+
+  // Title block
+  cover.drawRectangle({ x: MARGIN, y: coverY - 80, width: usableWidth, height: 80, color: lightGreen })
+  cover.drawText('HEALTH AND SAFETY FILE', {
+    x: MARGIN + 16, y: coverY - 28,
+    size: 18, font: boldFont, color: green,
+  })
+  cover.drawText('Safety, Health and Environment â€” Project File', {
+    x: MARGIN + 16, y: coverY - 46,
+    size: 10, font: regularFont, color: midGreen,
+  })
+  cover.drawText('Compiled in accordance with OHS Act 85/1993 & Construction Regulations 2014', {
+    x: MARGIN + 16, y: coverY - 62,
+    size: 8, font: regularFont, color: midGreen,
+  })
+
+  // Cover details table
+  let cy = coverY - 110
+  const rows: [string, string][] = [
+    ['File number',         data.fileNumber],
+    ['Project',             data.projectName],
+    ['Site address',        data.projectAddress],
+    ['Project value',       data.projectValue || 'â€”'],
+    ['Client / employer',   data.clientName || 'â€”'],
+    ['Site agent',          data.siteAgent || 'â€”'],
+    ['Start date',          data.startDate || 'â€”'],
+    ['Completion date',     data.endDate || 'â€”'],
+    ['Principal contractor',data.contractorName],
+    ['CIDB registration',   data.cidbNumber || 'â€”'],
+    ['Workers on site',     data.workerCount],
+    ['High-risk activities',data.highRiskActivities || 'None declared'],
+    ['Project type',        data.projectType],
+  ]
+
+  for (const [key, val] of rows) {
+    cover.drawRectangle({ x: MARGIN, y: cy - 2, width: 160, height: 14, color: rgb(0.96, 0.99, 0.97) })
+    cover.drawText(key, { x: MARGIN + 4, y: cy + 2, size: 8.5, font: boldFont, color: green })
+    const valLines = wrapText(val, regularFont, 8.5, usableWidth - 170)
+    cover.drawText(valLines[0] ?? '', { x: MARGIN + 168, y: cy + 2, size: 8.5, font: regularFont, color: black })
+    cy -= LINE_HEIGHT
+  }
+
+  // Reviewer block
+  cy -= 10
+  cover.drawRectangle({ x: MARGIN, y: cy - 60, width: usableWidth, height: 68, color: green })
+  cover.drawText('REVIEWED AND CERTIFIED BY', {
+    x: MARGIN + 12, y: cy + 2,
+    size: 8, font: boldFont, color: rgb(0.7,1,0.7),
+  })
+  cover.drawText(data.consultantName, {
+    x: MARGIN + 12, y: cy - 14,
+    size: 13, font: boldFont, color: rgb(1,1,1),
+  })
+  cover.drawText(`SACPCMP ${data.sacpcmpCategory}  Â·  Reg: ${data.sacpcmpNumber}`, {
+    x: MARGIN + 12, y: cy - 30,
+    size: 9, font: regularFont, color: rgb(0.8,1,0.85),
+  })
+  cover.drawText(`Date signed: ${data.signingDate}`, {
+    x: MARGIN + 12, y: cy - 44,
+    size: 9, font: regularFont, color: rgb(0.8,1,0.85),
+  })
+
+  // â”€â”€ DOCUMENT PAGES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Split document text into sections
+  const lines = data.documentText.split('\n')
+  let { page, y } = await addPage(doc, boldFont, regularFont, data.fileNumber)
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd()
+
+    // Section heading detection (all caps or starts with SECTION)
+    const isSection = /^(SECTION|â”|â•|â”€)/.test(line) || (line === line.toUpperCase() && line.trim().length > 4 && line.trim().length < 80 && /[A-Z]/.test(line))
+    const isEmpty   = line.trim() === ''
+    const isSeparator = /^[â”â•â”€]{3,}/.test(line.trim())
+
+    if (y < 60) {
+      const next = await addPage(doc, boldFont, regularFont, data.fileNumber)
+      page = next.page
+      y    = next.y
+    }
+
+    if (isSeparator) {
+      page.drawLine({
+        start: { x: MARGIN, y: y + 4 }, end: { x: PAGE_WIDTH - MARGIN, y: y + 4 },
+        thickness: 0.5, color: rgb(0.8, 0.95, 0.85),
+      })
+      y -= 8
+      continue
+    }
+
+    if (isEmpty) { y -= 6; continue }
+
+    if (isSection) {
+      // Add spacing before section headings
+      if (y < PAGE_HEIGHT - 100) y -= 6
+
+      // Green background for section headings
+      const headLines = wrapText(line, boldFont, SECTION_SIZE, usableWidth - 8)
+      page.drawRectangle({
+        x: MARGIN, y: y - 4,
+        width: usableWidth, height: headLines.length * (LINE_HEIGHT - 1) + 6,
+        color: lightGreen,
+      })
+      for (const hl of headLines) {
+        page.drawText(hl, { x: MARGIN + 4, y, size: SECTION_SIZE, font: boldFont, color: green })
+        y -= LINE_HEIGHT - 1
+      }
+      y -= 4
+      continue
+    }
+
+    // Table rows (contain |)
+    if (line.includes('|')) {
+      const cells = line.split('|').map(c => c.trim()).filter(Boolean)
+      const cellW = usableWidth / Math.max(cells.length, 1)
+      cells.forEach((cell, i) => {
+        const isHeader = /^[A-Z\s]+$/.test(cell) && cell.length > 2
+        page.drawText(cell.slice(0, 35), {
+          x: MARGIN + i * cellW + 2, y,
+          size: 8, font: isHeader ? boldFont : regularFont,
+          color: isHeader ? midGreen : black,
+        })
+      })
+      y -= LINE_HEIGHT - 2
+      continue
+    }
+
+    // [CONSULTANT TO COMPLETE] highlight
+    if (line.includes('[CONSULTANT TO COMPLETE]') || line.includes('[CONSULTANT TO INSERT]')) {
+      const wrappedLines = wrapText(line, regularFont, FONT_SIZE, usableWidth - 8)
+      for (const wl of wrappedLines) {
+        if (y < 60) {
+          const next = await addPage(doc, boldFont, regularFont, data.fileNumber)
+          page = next.page; y = next.y
+        }
+        page.drawRectangle({ x: MARGIN, y: y - 2, width: usableWidth, height: LINE_HEIGHT, color: rgb(1, 0.97, 0.88) })
+        page.drawText(wl, { x: MARGIN + 4, y, size: FONT_SIZE, font: regularFont, color: rgb(0.6, 0.3, 0) })
+        y -= LINE_HEIGHT
+      }
+      continue
+    }
+
+    // Normal text
+    const wrappedLines = wrapText(line, regularFont, FONT_SIZE, usableWidth)
+    for (const wl of wrappedLines) {
+      if (y < 60) {
+        const next = await addPage(doc, boldFont, regularFont, data.fileNumber)
+        page = next.page; y = next.y
+      }
+      page.drawText(wl, { x: MARGIN, y, size: FONT_SIZE, font: regularFont, color: black })
+      y -= LINE_HEIGHT
+    }
+  }
+
+  // â”€â”€ SIGNATURE PAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const { page: sigPage, y: sigY } = await addPage(doc, boldFont, regularFont, data.fileNumber)
+
+  sigPage.drawRectangle({ x: MARGIN, y: sigY - 30, width: usableWidth, height: 34, color: green })
+  sigPage.drawText('PROFESSIONAL CERTIFICATION AND SIGNATURE', {
+    x: MARGIN + 12, y: sigY - 12,
+    size: 11, font: boldFont, color: rgb(1,1,1),
+  })
+  sigPage.drawText('This page constitutes the professional sign-off in terms of Construction Regulations 2014, Regulation 5(1)(l)', {
+    x: MARGIN + 12, y: sigY - 24,
+    size: 7.5, font: regularFont, color: rgb(0.8,1,0.85),
+  })
+
+  let sy = sigY - 60
+
+  const certText = `I, ${data.consultantName}, holder of SACPCMP Registration Number ${data.sacpcmpNumber} (${data.sacpcmpCategory}), hereby certify that:
+
+1. I have reviewed the contents of this Health and Safety File for the project known as "${data.projectName}" located at ${data.projectAddress}.
+
+2. This SHE file has been compiled in accordance with the requirements of the Occupational Health and Safety Act 85 of 1993 and the Construction Regulations of 2014 (GN R84, GG 37305).
+
+3. The hazard identification and risk assessment contained herein reflects the known activities and conditions of this construction project.
+
+4. I accept professional responsibility for the contents of this SHE file in my capacity as a registered ${data.sacpcmpCategory} professional.
+
+5. This SHE file must be kept on site at all times and made available to any inspector from the Department of Employment and Labour upon request (Section 14, OHS Act 85/1993).`
+
+  for (const cl of certText.split('\n')) {
+    const cwLines = wrapText(cl.trim() || ' ', regularFont, 9.5, usableWidth)
+    for (const wl of cwLines) {
+      sigPage.drawText(wl, { x: MARGIN, y: sy, size: 9.5, font: regularFont, color: black })
+      sy -= 14
+    }
+    if (!cl.trim()) sy -= 4
+  }
+
+  sy -= 20
+
+  // Signature box
+  sigPage.drawRectangle({ x: MARGIN, y: sy - 90, width: 250, height: 94, color: lightGreen })
+  sigPage.drawText('Signature', { x: MARGIN + 8, y: sy - 10, size: 8, font: boldFont, color: midGreen })
+
+  // Embed the drawn signature
+  if (data.signatureImageBase64) {
+    try {
+      const sigBase64 = data.signatureImageBase64.replace(/^data:image\/png;base64,/, '')
+      const sigBytes  = Buffer.from(sigBase64, 'base64')
+      const sigImage  = await doc.embedPng(sigBytes)
+      const sigDims   = sigImage.scaleToFit(230, 65)
+      sigPage.drawImage(sigImage, {
+        x: MARGIN + 10, y: sy - 82,
+        width: sigDims.width, height: sigDims.height,
+      })
+    } catch (e) {
+      sigPage.drawText('[Signature embedded]', { x: MARGIN + 10, y: sy - 50, size: 8, font: regularFont, color: midGreen })
+    }
+  }
+
+  // Details alongside signature
+  sigPage.drawText('Name:', { x: MARGIN + 270, y: sy - 14, size: 9, font: boldFont, color: green })
+  sigPage.drawText(data.consultantName, { x: MARGIN + 310, y: sy - 14, size: 9, font: regularFont, color: black })
+  sigPage.drawText('SACPCMP:', { x: MARGIN + 270, y: sy - 28, size: 9, font: boldFont, color: green })
+  sigPage.drawText(data.sacpcmpNumber, { x: MARGIN + 330, y: sy - 28, size: 9, font: regularFont, color: black })
+  sigPage.drawText('Category:', { x: MARGIN + 270, y: sy - 42, size: 9, font: boldFont, color: green })
+  sigPage.drawText(data.sacpcmpCategory, { x: MARGIN + 330, y: sy - 42, size: 9, font: regularFont, color: black })
+  sigPage.drawText('Date:', { x: MARGIN + 270, y: sy - 56, size: 9, font: boldFont, color: green })
+  sigPage.drawText(data.signingDate, { x: MARGIN + 310, y: sy - 56, size: 9, font: regularFont, color: black })
+
+  // QR-like verification block
+  sy -= 110
+  sigPage.drawRectangle({ x: MARGIN, y: sy - 30, width: usableWidth, height: 34, color: rgb(0.96,0.98,0.97), borderColor: rgb(0.8,0.93,0.85), borderWidth: 1 })
+  sigPage.drawText(`Verified by ProtekFlow  Â·  File: ${data.fileNumber}  Â·  Legacy Landmark (Pty) Ltd  Â·  Signed: ${data.signingDate}`, {
+    x: MARGIN + 8, y: sy - 12,
+    size: 7.5, font: regularFont, color: midGreen,
+  })
+  sigPage.drawText('This document has been professionally reviewed and signed. Keep this file on site at all times.', {
+    x: MARGIN + 8, y: sy - 24,
+    size: 7, font: regularFont, color: gray,
+  })
+
+  return doc.save()
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\pricing.ts ===
+// src/lib/pricing.ts
+// Single source of truth for all ProtekFlow pricing logic
+
+export const PRICING = {
+  // File prices in ZAR cents (avoids float bugs)
+  FILE_STANDARD:   450000,   // R4,500
+  FILE_VOLUME_A:   412500,   // R4,125  (3â€“5 files with same consultant)
+  FILE_VOLUME_B:   362500,   // R3,625  (6â€“11 files)
+  FILE_VOLUME_C:   312500,   // R3,125  (12+ files)
+
+  // Consultant monthly subscription
+  PRO_MONTHLY:     99900,    // R999
+
+  // Platform fee percentages
+  FEE_FREE:        25,       // 25% on Free tier
+  FEE_PRO:         15,       // 15% on Pro tier
+
+  // SLA
+  SLA_HOURS:       48,
+} as const
+
+export type VolumeTier = 'standard' | 'volume_a' | 'volume_b' | 'volume_c'
+export type ConsultantTier = 'free' | 'pro'
+
+/** Returns the file price in cents for a given volume tier */
+export function getFilePrice(tier: VolumeTier = 'standard'): number {
+  const map: Record<VolumeTier, number> = {
+    standard: PRICING.FILE_STANDARD,
+    volume_a: PRICING.FILE_VOLUME_A,
+    volume_b: PRICING.FILE_VOLUME_B,
+    volume_c: PRICING.FILE_VOLUME_C,
+  }
+  return map[tier]
+}
+
+/** Splits a gross file price into platform fee and consultant amount */
+export function splitRevenue(
+  grossCents: number,
+  consultantTier: ConsultantTier
+): { platformFee: number; consultantAmount: number; feePct: number } {
+  const feePct = consultantTier === 'pro' ? PRICING.FEE_PRO : PRICING.FEE_FREE
+  const platformFee = Math.round(grossCents * feePct / 100)
+  const consultantAmount = grossCents - platformFee
+  return { platformFee, consultantAmount, feePct }
+}
+
+/** Formats ZAR cents as R4,500 */
+export function formatZAR(cents: number): string {
+  return 'R' + (cents / 100).toLocaleString('en-ZA', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  })
+}
+
+/** Pro tier break-even: monthly earnings comparison */
+export function proBreakEven(filesPerMonth: number) {
+  const freeEarnings = (filesPerMonth * (PRICING.FILE_STANDARD - Math.round(PRICING.FILE_STANDARD * PRICING.FEE_FREE / 100)))
+  const proEarnings  = (filesPerMonth * (PRICING.FILE_STANDARD - Math.round(PRICING.FILE_STANDARD * PRICING.FEE_PRO   / 100))) - PRICING.PRO_MONTHLY
+  return {
+    freeEarnings,
+    proEarnings,
+    advantage: proEarnings - freeEarnings,
+    proIsBetter: proEarnings > freeEarnings,
+  }
+}
+
+/** Determines SLA deadline from when payment is confirmed */
+export function getSlaDeadline(paidAt: Date): Date {
+  const deadline = new Date(paidAt)
+  deadline.setHours(deadline.getHours() + PRICING.SLA_HOURS)
+  return deadline
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\supabase-server.ts ===
+// src/lib/supabase-server.ts
+// Server-only client â€” use in Server Components, Route Handlers, and Server Actions
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import type { Database } from '@/types/supabase'
+
+export function createServerSupabaseClient() {
+  const cookieStore = cookies()
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) { return cookieStore.get(name)?.value },
+        set(name: string, value: string, options: object) {
+          try { cookieStore.set({ name, value, ...options }) } catch {}
+        },
+        remove(name: string, options: object) {
+          try { cookieStore.set({ name, value: '', ...options }) } catch {}
+        },
+      },
+    }
+  )
+}
+
+// Admin client â€” bypasses RLS. Use ONLY in server-side admin routes.
+import { createClient } from '@supabase/supabase-js'
+
+export function createAdminClient() {
+  return createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\supabase.ts ===
+// src/lib/supabase.ts
+// Browser client â€” safe for client components
+import { createBrowserClient } from '@supabase/ssr'
+import type { Database } from '@/types/supabase'
+
+export function createClient() {
+  return createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\templates.ts ===
+// src/lib/templates.ts
+// Template selection logic â€” maps wizard answers to the right SHE template
+import { createAdminClient } from './supabase-server'
+
+export type WizardAnswers = {
+  projectType:        string        // e.g. 'residential', 'electrical'
+  projectName:        string
+  projectAddress:     string
+  projectValue:       number        // ZAR
+  durationDays:       number
+  workerCount:        number
+  highRiskActivities: string[]      // e.g. ['working_at_height', 'excavation']
+  clientType:         'private' | 'public_sector' | 'soe' | 'cidb_grade6plus'
+  contractorName:     string
+  cidbNumber:         string
+  startDate:          string
+  endDate:            string
+  clientName?:        string
+  siteAgent?:         string
+}
+
+export const PROJECT_TYPE_MAP: Record<string, string> = {
+  residential:         'T01',
+  light_commercial:    'T02',
+  civil_earthworks:    'T03',
+  electrical:          'T04',
+  plumbing_mechanical: 'T05',
+  roofing:             'T06',
+  demolition:          'T07',
+  painting_cladding:   'T08',
+  interior_fitout:     'T09',
+  general_maintenance: 'T10',
+}
+
+// Project types in plain English for the wizard dropdown
+export const PROJECT_TYPE_OPTIONS = [
+  { value: 'residential',         label: 'Residential construction' },
+  { value: 'light_commercial',    label: 'Light commercial construction' },
+  { value: 'civil_earthworks',    label: 'Civil / earthworks' },
+  { value: 'electrical',          label: 'Electrical installation' },
+  { value: 'plumbing_mechanical', label: 'Plumbing and mechanical' },
+  { value: 'roofing',             label: 'Roofing (industrial/commercial)' },
+  { value: 'demolition',          label: 'Demolition' },
+  { value: 'painting_cladding',   label: 'Painting and cladding' },
+  { value: 'interior_fitout',     label: 'Interior fit-out' },
+  { value: 'general_maintenance', label: 'General maintenance' },
+]
+
+export const HIGH_RISK_OPTIONS = [
+  { value: 'working_at_height',   label: 'Working at height (>2m)' },
+  { value: 'excavation',          label: 'Excavation / trenching' },
+  { value: 'confined_spaces',     label: 'Confined spaces' },
+  { value: 'asbestos',            label: 'Asbestos handling' },
+  { value: 'hot_work',            label: 'Hot work / welding' },
+  { value: 'electrical_hv',       label: 'Electrical (HV)' },
+  { value: 'demolition_activity', label: 'Structural demolition' },
+  { value: 'cranes_lifting',      label: 'Cranes / lifting operations' },
+  { value: 'explosives',          label: 'Explosives / blasting' },
+]
+
+/** Returns true if project triggers complex pricing (R9,000) and CHSM-only matching */
+export function isComplex(answers: WizardAnswers): boolean {
+  if (answers.projectValue > 5_000_000) return true
+  if (answers.highRiskActivities.length >= 3) return true
+  if (answers.clientType === 'soe') return true
+  if (answers.clientType === 'cidb_grade6plus') return true
+  return false
+}
+
+/** Selects the correct template and returns everything needed to generate a draft */
+export async function selectTemplate(answers: WizardAnswers) {
+  const code = PROJECT_TYPE_MAP[answers.projectType]
+  if (!code) throw new Error(`Unknown project type: ${answers.projectType}`)
+
+  const complex = isComplex(answers)
+  const supabase = createAdminClient()
+
+  const { data, error } = await supabase
+    .from('project_types')
+    .select(`
+      id, code, label, requires_chsm, high_risk, price_standard, price_complex,
+      she_templates (
+        id, content, version,
+        customisation_minutes_min, customisation_minutes_max
+      )
+    `)
+    .eq('code', code)
+    .single()
+
+  if (error || !data) throw new Error(`Project type not found: ${code}`)
+
+  const templates = (data as any).she_templates as any[]
+  const template  = templates?.find((t: any) => t.is_active !== false) ?? templates?.[0]
+
+  return {
+    projectTypeId:     data.id,
+    templateId:        template?.id ?? null,
+    templateContent:   template?.content ?? null,
+    templateVersion:   template?.version ?? '1.0',
+    isComplex:         complex,
+    requiresChsm:      complex || data.requires_chsm,
+    price:             complex ? data.price_complex : data.price_standard,
+    customisationMins: {
+      min: template?.customisation_minutes_min ?? 30,
+      max: template?.customisation_minutes_max ?? 45,
+    },
+  }
+}
+
+/** Builds the Claude prompt â€” fills contractor fields, leaves consultant fields intact */
+export function buildClaudePrompt(templateContent: string, answers: WizardAnswers): string {
+  return `You are a South African construction health and safety document specialist with deep knowledge of the OHS Act 85/1993 and Construction Regulations 2014.
+
+Using the SHE file template below and the contractor's project information, produce a completed draft SHE file.
+
+STRICT RULES:
+1. Replace every placeholder marked [CONTRACTOR TO PROVIDE] or [FROM WIZARD] with the actual project information provided below.
+2. Leave every placeholder marked [CONSULTANT TO COMPLETE], [CONSULTANT TO INSERT], or [CONSULTANT TO VERIFY] EXACTLY as-is â€” these are for the SACPCMP professional reviewer.
+3. Do NOT add, remove, or reorder any sections.
+4. Preserve ALL table structures, section headings, and numbering exactly.
+5. Output the completed document as plain text with identical structure to the template.
+6. For any risk assessments, use the specific high-risk activities declared below.
+7. All dates must be in South African format: DD/MM/YYYY.
+
+PROJECT INFORMATION:
+- Project name: ${answers.projectName}
+- Site address: ${answers.projectAddress}
+- Principal contractor: ${answers.contractorName}
+- CIDB registration: ${answers.cidbNumber}
+- Project value: R${answers.projectValue.toLocaleString('en-ZA')}
+- Client / employer: ${answers.clientName ?? '[CONSULTANT TO COMPLETE]'}
+- Site agent: ${answers.siteAgent ?? '[CONSULTANT TO COMPLETE]'}
+- Start date: ${answers.startDate}
+- Completion date: ${answers.endDate}
+- Duration: ${answers.durationDays} days
+- Workers on site: ${answers.workerCount}
+- High-risk activities: ${answers.highRiskActivities.length > 0 ? answers.highRiskActivities.join(', ') : 'None declared by contractor'}
+- Client type: ${answers.clientType}
+
+TEMPLATE:
+${templateContent}`
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\lib\theme.ts ===
+// Shared design tokens â€” import in every page
+export const C = {
+  g50:'#f0fdf4', g100:'#dcfce7', g200:'#bbf7d0', g300:'#86efac',
+  g400:'#4ade80', g500:'#22c55e', g600:'#16a34a', g700:'#15803d',
+  g800:'#166534', g900:'#14532d', g950:'#052e16',
+  white:'#ffffff', amber:'#f59e0b', amberBg:'#fef3c7', amberText:'#92400e',
+  blue:'#3b82f6', blueBg:'#dbeafe', blueText:'#1d4ed8',
+  red:'#ef4444', redBg:'#fee2e2', redText:'#991b1b',
+  serif:"'Fraunces',Georgia,serif",
+  sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
+}
+
+export const badge = {
+  green: {display:'inline-block',background:'#dcfce7',color:'#166534',fontSize:11,fontWeight:600,padding:'2px 10px',borderRadius:20} as React.CSSProperties,
+  amber: {display:'inline-block',background:'#fef3c7',color:'#92400e',fontSize:11,fontWeight:600,padding:'2px 10px',borderRadius:20} as React.CSSProperties,
+  blue:  {display:'inline-block',background:'#dbeafe',color:'#1d4ed8',fontSize:11,fontWeight:600,padding:'2px 10px',borderRadius:20} as React.CSSProperties,
+  red:   {display:'inline-block',background:'#fee2e2',color:'#991b1b',fontSize:11,fontWeight:600,padding:'2px 10px',borderRadius:20} as React.CSSProperties,
+}
+
+export const FILE_STATUS: Record<string, {label:string; badge: React.CSSProperties}> = {
+  draft:           {label:'Draft',           badge: badge.amber},
+  payment_pending: {label:'Awaiting payment',badge: badge.amber},
+  paid:            {label:'Queued',          badge: badge.blue},
+  matched:         {label:'Matched',         badge: badge.blue},
+  in_review:       {label:'In review',       badge: badge.blue},
+  awaiting_sign:   {label:'Awaiting sign',   badge: badge.blue},
+  signed:          {label:'Signed',          badge: badge.green},
+  completed:       {label:'Completed âœ“',     badge: badge.green},
+  cancelled:       {label:'Cancelled',       badge: badge.red},
+  overdue:         {label:'Overdue',         badge: badge.red},
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\types\pdf-lib-fontkit.d.ts ===
+// Type declaration for @pdf-lib/fontkit (missing from its package)
+declare module '@pdf-lib/fontkit' {
+  const fontkit: any
+  export default fontkit
+}
+=== C:\Users\Buzwem\Downloads\protekflowv3\protekflow\src\types\supabase.ts ===
+// src/types/supabase.ts
+// Auto-generated Supabase type stub.
+// Replace with real types by running: npm run db:types
+// (requires SUPABASE_PROJECT_ID in your environment)
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export interface Database {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id:           string
+          role:         'contractor' | 'consultant' | 'admin'
+          full_name:    string
+          phone:        string | null
+          company_name: string | null
+          created_at:   string
+          updated_at:   string
+        }
+        Insert: Partial<Database['public']['Tables']['profiles']['Row']> & { id: string; full_name: string }
+        Update: Partial<Database['public']['Tables']['profiles']['Row']>
+      }
+      contractors: {
+        Row: {
+          id:          string
+          cidb_number: string | null
+          cidb_grade:  number | null
+          city:        string | null
+          province:    string | null
+          total_files: number
+          created_at:  string
+        }
+        Insert: Partial<Database['public']['Tables']['contractors']['Row']> & { id: string }
+        Update: Partial<Database['public']['Tables']['contractors']['Row']>
+      }
+      consultants: {
+        Row: {
+          id:                  string
+          sacpcmp_number:      string
+          sacpcmp_category:    string | null
+          sacpcmp_expiry:      string | null
+          verification_status: 'pending' | 'verified' | 'rejected' | 'suspended'
+          tier:                'free' | 'pro'
+          bio:                 string | null
+          city:                string | null
+          province:            string | null
+          rating_avg:          number
+          rating_count:        number
+          files_completed:     number
+          files_this_month:    number
+          is_available:        boolean
+          created_at:          string
+        }
+        Insert: Partial<Database['public']['Tables']['consultants']['Row']> & { id: string; sacpcmp_number: string }
+        Update: Partial<Database['public']['Tables']['consultants']['Row']>
+      }
+      she_files: {
+        Row: {
+          id:                     string
+          file_number:            string
+          contractor_id:          string
+          consultant_id:          string | null
+          project_name:           string
+          project_address:        string
+          project_value:          number | null
+          project_start_date:     string | null
+          project_end_date:       string | null
+          principal_contractor:   string | null
+          client_name:            string | null
+          site_agent:             string | null
+          price_zar:              number
+          volume_tier:            string
+          status:                 string
+          sla_deadline:           string | null
+          matched_at:             string | null
+          review_started_at:      string | null
+          completed_at:           string | null
+          docuseal_submission_id: string | null
+          docuseal_document_url:  string | null
+          docuseal_status:        string | null
+          payfast_payment_id:     string | null
+          paid_at:                string | null
+          project_type_id:        number | null
+          template_id:            number | null
+          wizard_data:            Json | null
+          generated_draft:        string | null
+          is_complex:             boolean
+          notes:                  string | null
+          created_at:             string
+          updated_at:             string
+        }
+        Insert: Partial<Database['public']['Tables']['she_files']['Row']> & {
+          contractor_id: string
+          project_name:  string
+          project_address: string
+        }
+        Update: Partial<Database['public']['Tables']['she_files']['Row']>
+      }
+      transactions: {
+        Row: {
+          id:                    string
+          she_file_id:           string
+          contractor_id:         string
+          consultant_id:         string | null
+          gross_amount:          number
+          platform_fee_pct:      number
+          platform_fee_amount:   number
+          consultant_amount:     number
+          payfast_payment_id:    string | null
+          payout_status:         'pending' | 'processing' | 'paid' | 'failed'
+          payout_reference:      string | null
+          paid_to_consultant_at: string | null
+          created_at:            string
+        }
+        Insert: Partial<Database['public']['Tables']['transactions']['Row']> & {
+          she_file_id:          string
+          contractor_id:        string
+          gross_amount:         number
+          platform_fee_pct:     number
+          platform_fee_amount:  number
+          consultant_amount:    number
+        }
+        Update: Partial<Database['public']['Tables']['transactions']['Row']>
+      }
+      project_types: {
+        Row: {
+          id:             number
+          code:           string
+          label:          string
+          description:    string | null
+          requires_chsm:  boolean
+          high_risk:      boolean
+          price_standard: number
+          price_complex:  number
+          created_at:     string
+        }
+        Insert: Partial<Database['public']['Tables']['project_types']['Row']>
+        Update: Partial<Database['public']['Tables']['project_types']['Row']>
+      }
+      she_templates: {
+        Row: {
+          id:                        number
+          project_type_id:           number | null
+          version:                   string
+          content:                   string
+          section_count:             number | null
+          customisation_minutes_min: number | null
+          customisation_minutes_max: number | null
+          is_active:                 boolean
+          created_at:                string
+          updated_at:                string
+        }
+        Insert: Partial<Database['public']['Tables']['she_templates']['Row']>
+        Update: Partial<Database['public']['Tables']['she_templates']['Row']>
+      }
+      platform_config: {
+        Row:    { key: string; value: string; note: string | null }
+        Insert: { key: string; value: string; note?: string | null }
+        Update: Partial<{ key: string; value: string; note: string | null }>
+      }
+    }
+    Views: {
+      v_file_summary: {
+        Row: {
+          id:                  string
+          file_number:         string
+          status:              string
+          price_zar:           number
+          volume_tier:         string
+          sla_deadline:        string | null
+          completed_at:        string | null
+          docuseal_document_url: string | null
+          created_at:          string
+          contractor_name:     string
+          contractor_company:  string | null
+          consultant_name:     string | null
+          consultant_sacpcmp:  string | null
+          consultant_tier:     string | null
+          project_name:        string
+          project_address:     string
+          project_value:       number | null
+        }
+      }
+    }
+    Functions: {
+      increment_consultant_files: {
+        Args: { consultant_uuid: string }
+        Returns: void
+      }
+    }
+    Enums: {
+      user_role:           'contractor' | 'consultant' | 'admin'
+      consultant_tier:     'free' | 'pro'
+      file_status:         'draft' | 'payment_pending' | 'paid' | 'matched' | 'in_review' | 'awaiting_sign' | 'signed' | 'completed' | 'cancelled' | 'overdue'
+      payout_status:       'pending' | 'processing' | 'paid' | 'failed'
+      verification_status: 'pending' | 'verified' | 'rejected' | 'suspended'
+    }
+  }
+}

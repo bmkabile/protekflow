@@ -22,7 +22,7 @@ const CreateFileSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
 
   // 1. Verify the user is authenticated
   const { data: { user }, error: authError } = await supabase.auth.getUser()

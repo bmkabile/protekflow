@@ -10,7 +10,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
@@ -19,15 +19,15 @@ export async function POST(
 
   // Fetch the file with related contractor and consultant profiles
   const { data: file } = await admin
-    .from('she_files')
-    .select(`
-      *,
-      contractor:profiles!she_files_contractor_id_fkey(full_name, email:auth_users(email)),
-      consultant:profiles!she_files_consultant_id_fkey(full_name, email:auth_users(email))
-    `)
-    .eq('id', fileId)
-    .eq('consultant_id', user.id)   // ensure this consultant owns this file
-    .single()
+  .from('she_files')
+  .select(`
+    *,
+    contractor:profiles!she_files_contractor_id_fkey(full_name, email:auth_users(email)),
+    consultant:profiles!she_files_consultant_id_fkey(full_name, email:auth_users(email))
+  `)
+  .eq('id', fileId)
+  .eq('consultant_id', user.id)
+  .single() as { data: any, error: any }
 
   if (!file) return NextResponse.json({ error: 'File not found or not assigned to you' }, { status: 404 })
   if (!['paid', 'matched', 'in_review'].includes(file.status)) {

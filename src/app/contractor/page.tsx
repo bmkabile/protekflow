@@ -31,7 +31,7 @@ const NAV = [
 ]
 
 export default async function ContractorDashboard() {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data:{ user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
