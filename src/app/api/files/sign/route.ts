@@ -53,15 +53,13 @@ export async function POST(
       completionWebhookUrl: webhookUrl,
     })
 
-    // Save the DocuSeal submission ID to the file
-    await admin.from('she_files').update({
+    await (admin.from('she_files') as any).update({
       status: 'awaiting_sign',
       docuseal_submission_id: String(submission.id),
       docuseal_status: 'pending',
       review_started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', fileId)
-
     return NextResponse.json({
       submission_id: submission.id,
       signing_url: submission.url,   // redirect consultant here to sign
