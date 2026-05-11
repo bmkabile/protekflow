@@ -12,11 +12,11 @@ const C = {
 }
 
 export default async function AdminVerifyConsultant({ params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/admin-login')
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    const { data: profile } = await (supabase as any).from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') redirect('/')
 
   const admin = createAdminClient()
