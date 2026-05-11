@@ -9,7 +9,7 @@ const C = {
   g800:'#166534',g900:'#14532d',g950:'#052e16',white:'#ffffff',
   serif:"'Fraunces',Georgia,serif", sans:"'DM Sans','Helvetica Neue',Arial,sans-serif",
 }
-
+export const dynamic = 'force-dynamic'
 export default function LoginPage() {
   const router = useRouter()
   const params = useSearchParams()

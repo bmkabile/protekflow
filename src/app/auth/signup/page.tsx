@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
-
+export const dynamic = 'force-dynamic'
 const C = {
   g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',
   g800:'#166534',g900:'#14532d',g950:'#052e16',white:'#ffffff',
@@ -12,7 +12,6 @@ const C = {
 
 const inp = {width:'100%',padding:'10px 14px',border:`1px solid #dcfce7`,borderRadius:8,fontSize:14,color:'#14532d',fontFamily:C.sans,outline:'none',boxSizing:'border-box' as const,background:'white'}
 const lbl = {display:'block' as const,fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}
-
 export default function SignupPage() {
   const router = useRouter()
   const params = useSearchParams()
