@@ -28,10 +28,8 @@ export default async function AdminDashboard() {
   const totalFiles  = filesRes.count ?? 0
   const consultants = consultantsRes.data ?? []
   const txns        = txRes.data ?? []
-  const proCount    = consultants.filter((c:any) => c.tier==='pro').length
   const pendingVerify = consultants.filter((c:any) => c.verification_status==='pending').length
   const totalRevenue  = txns.reduce((s:number,t:any) => s+(t.platform_fee_amount??0),0)
-  const proSubRevenue = proCount * 99900
 
   const { data: recentFiles } = await admin
     .from('v_file_summary').select('*').order('created_at',{ascending:false}).limit(8)
@@ -43,9 +41,9 @@ export default async function AdminDashboard() {
 
   const statCards = [
     {label:'SHE files total',  value:totalFiles.toString()},
-    {label:'Platform revenue', value:formatZAR(totalRevenue+proSubRevenue), note:`incl ${formatZAR(proSubRevenue)} subs`},
+    {label:'Platform revenue', value:formatZAR(totalRevenue)},
     {label:'Contractors',      value:(contractorsRes.count??0).toString()},
-    {label:'Consultants',      value:consultants.length.toString(), note:`${proCount} Pro · ${consultants.length-proCount} Free`},
+    {label:'Consultants',      value:consultants.length.toString(), note:`${pendingVerify} pending verification`},
   ]
 
   const statusColor: Record<string,{bg:string;color:string}> = {
@@ -134,12 +132,10 @@ export default async function AdminDashboard() {
             <div style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:14,padding:24}}>
               <h2 style={{fontSize:15,fontWeight:600,color:C.g900,margin:'0 0 18px'}}>Revenue breakdown</h2>
               {[
-                {label:'Platform fees (Free — 25%)',       value:formatZAR(Math.round(totalRevenue*0.5))},
-                {label:'Platform fees (Pro — 15%)',        value:formatZAR(Math.round(totalRevenue*0.5))},
-                {label:`Pro subs (${proCount} × R999/mo)`, value:formatZAR(proSubRevenue)},
-                {label:'Total platform revenue',           value:formatZAR(totalRevenue+proSubRevenue), bold:true},
+                {label:'Platform fees (20%)', value:formatZAR(totalRevenue)},
+                {label:'Total platform revenue', value:formatZAR(totalRevenue), bold:true},
               ].map((row,i) => (
-                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom: i<3?`1px solid ${C.g50}`:'none'}}>
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom: i<1?`1px solid ${C.g50}`:'none'}}>
                   <span style={{fontSize:13,color:row.bold?C.g900:C.g600,fontWeight:row.bold?600:400}}>{row.label}</span>
                   <span style={{fontFamily:C.serif,fontSize:15,color:C.g900,fontWeight:row.bold?700:400}}>{row.value}</span>
                 </div>
@@ -171,7 +167,7 @@ export default async function AdminDashboard() {
                         <td style={{padding:'11px 12px',color:C.g800,fontSize:12}}>{f.contractor_name}</td>
                         <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>{f.consultant_name??'—'}</td>
                         <td style={{padding:'11px 12px',fontWeight:600}}>{formatZAR(f.price_zar)}</td>
-                        <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>{f.consultant_tier==='pro'?'15%':'25%'}</td>
+                        <td style={{padding:'11px 12px',color:C.g600,fontSize:12}}>20%</td>
                         <td style={{padding:'11px 12px'}}>
                           <span style={{...st,display:'inline-block',fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20}}>{f.status}</span>
                         </td>

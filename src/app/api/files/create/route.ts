@@ -16,7 +16,6 @@ const CreateFileSchema = z.object({
   principal_contractor: z.string().optional(),
   client_name:          z.string().optional(),
   site_agent:           z.string().optional(),
-  volume_tier:          z.enum(['standard', 'volume_a', 'volume_b', 'volume_c']).default('standard'),
   // Section content from wizard
   sections:             z.record(z.unknown()).optional(),
 })
@@ -48,15 +47,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 })
   }
 
-  const { sections, volume_tier, ...fileData } = parsed.data
-  const priceZar = getFilePrice(volume_tier)
+  const { sections, ...fileData } = parsed.data
+  const priceZar = getFilePrice()
 
   // 4. Insert the SHE file (status: 'draft' → will become 'payment_pending')
   const { data: file, error: insertError } = await supabase
     .from('she_files')
     .insert({
       contractor_id: user.id,
-      volume_tier,
       price_zar: priceZar,
       status: 'payment_pending',
       ...fileData,

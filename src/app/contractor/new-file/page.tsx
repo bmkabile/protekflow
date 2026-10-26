@@ -12,7 +12,7 @@ type Step = 1 | 2 | 3 | 4
 const STEPS = [
   { n: 1, label: 'Project details' },
   { n: 2, label: 'Site & contacts' },
-  { n: 3, label: 'Volume & pricing' },
+  { n: 3, label: 'Price' },
   { n: 4, label: 'Review & pay' },
 ]
 
@@ -31,20 +31,12 @@ export default function NewFilePage() {
     principal_contractor: '',
     client_name:          '',
     site_agent:           '',
-    volume_tier:          'standard' as 'standard'|'volume_a'|'volume_b'|'volume_c',
   })
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
 
-  const PRICE_MAP = {
-    standard: PRICING.FILE_STANDARD,
-    volume_a: PRICING.FILE_VOLUME_A,
-    volume_b: PRICING.FILE_VOLUME_B,
-    volume_c: PRICING.FILE_VOLUME_C,
-  }
-
-  const price = PRICE_MAP[form.volume_tier]
+  const price = PRICING.FILE_PRICE
 
   const handleSubmit = async () => {
     setLoading(true)
@@ -174,37 +166,19 @@ export default function NewFilePage() {
             </div>
           )}
 
-          {/* STEP 3 — Volume tier selection */}
+          {/* STEP 3 -- Price */}
           {step === 3 && (
             <div className="space-y-5">
-              <h2 className="font-serif text-xl font-semibold text-brand-900">Volume &amp; pricing</h2>
-              <p className="text-brand-600 text-sm">How many SHE files do you expect to need from the same consultant this year?</p>
-              <div className="space-y-3">
-                {[
-                  { tier: 'standard', label: '1–2 files',  price: PRICING.FILE_STANDARD, desc: 'Standard rate' },
-                  { tier: 'volume_a', label: '3–5 files',  price: PRICING.FILE_VOLUME_A, desc: 'Volume A — save R375/file' },
-                  { tier: 'volume_b', label: '6–11 files', price: PRICING.FILE_VOLUME_B, desc: 'Volume B — save R875/file' },
-                  { tier: 'volume_c', label: '12+ files',  price: PRICING.FILE_VOLUME_C, desc: 'Volume C — save R1,375/file' },
-                ].map(opt => (
-                  <label key={opt.tier}
-                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                      form.volume_tier === opt.tier ? 'border-brand-600 bg-brand-50' : 'border-brand-100 hover:border-brand-300'
-                    }`}>
-                    <div className="flex items-center gap-3">
-                      <input type="radio" name="volume_tier" value={opt.tier}
-                        checked={form.volume_tier === opt.tier}
-                        onChange={set('volume_tier')} className="accent-brand-600" />
-                      <div>
-                        <div className="font-medium text-brand-900 text-sm">{opt.label}</div>
-                        <div className="text-xs text-brand-500">{opt.desc}</div>
-                      </div>
-                    </div>
-                    <div className="font-serif font-bold text-brand-900 text-lg">{formatZAR(opt.price)}</div>
-                  </label>
-                ))}
+              <h2 className="font-serif text-xl font-semibold text-brand-900">Your fixed price</h2>
+              <div className="rounded-xl border-2 border-brand-600 bg-brand-50 p-5 flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-brand-900 text-sm">SHE file, reviewed and signed</div>
+                  <div className="text-xs text-brand-500">One file per project &middot; 48-hour delivery target</div>
+                </div>
+                <div className="font-serif font-bold text-brand-900 text-2xl">{formatZAR(price)}</div>
               </div>
               <div className="bg-brand-50 rounded-xl p-4 text-sm text-brand-600">
-                <strong className="text-brand-800">Volume discounts</strong> are offered at the consultant's discretion. Selecting a higher volume tier signals to your matched consultant that you have multiple projects — they may offer the discounted rate.
+                Your file is drafted from your project details, then reviewed and signed by a SACPCMP-registered professional.
               </div>
               <div className="flex justify-between pt-2">
                 <button onClick={() => setStep(2)} className="btn-secondary">← Back</button>
@@ -223,7 +197,6 @@ export default function NewFilePage() {
                   ['Site address',  form.project_address],
                   ['Client',        form.client_name || '—'],
                   ['Site agent',    form.site_agent || '—'],
-                  ['Volume tier',   form.volume_tier.replace('_', ' ')],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <span className="text-brand-500">{k}</span>

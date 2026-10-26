@@ -38,7 +38,7 @@ export async function POST(
   const { data: contractorUser } = await admin.auth.admin.getUserById(file.contractor_id)
   const { data: consultantUser } = await admin.auth.admin.getUserById(file.consultant_id!)
 
-  const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/docuseal/webhook`
+  const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/consultant/files/${fileId}`
 
   try {
     const submission = await createSheFileSubmission({
@@ -50,7 +50,7 @@ export async function POST(
       consultantName:    (file.consultant as any)?.full_name ?? '',
       contractorEmail:   contractorUser?.user?.email ?? '',
       contractorName:    (file.contractor as any)?.full_name ?? '',
-      completionWebhookUrl: webhookUrl,
+      completionRedirectUrl: redirectUrl,
     })
 
     await (admin.from('she_files') as any).update({

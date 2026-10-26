@@ -8,7 +8,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
@@ -47,7 +47,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 

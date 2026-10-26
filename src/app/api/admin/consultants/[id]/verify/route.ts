@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.redirect(new URL('/auth/admin-login', request.url))
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()

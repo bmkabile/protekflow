@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { formatZAR, splitRevenue, type ConsultantTier } from '@/lib/pricing'
+import { formatZAR, splitRevenue } from '@/lib/pricing'
 
 const C = {
   g50:'#f0fdf4',g100:'#dcfce7',g200:'#bbf7d0',g300:'#86efac',g400:'#4ade80',
@@ -36,10 +36,9 @@ export default async function ConsultantDashboard() {
     f.status==='completed' && f.completed_at && new Date(f.completed_at)>=thisMonth
   )
   const earningsThisMonth = completedThisMonth.reduce((sum:number,f:SheFileRow) => {
-    const { consultantAmount } = splitRevenue(f.price_zar, consultant.tier as ConsultantTier)
+    const { consultantAmount } = splitRevenue(f.price_zar)
     return sum + consultantAmount
   }, 0)
-  const isPro = consultant.tier === 'pro'
   const isPending = consultant.verification_status === 'pending'
 
   return (
@@ -54,7 +53,6 @@ export default async function ConsultantDashboard() {
           <span style={{fontFamily:C.serif,fontWeight:600,color:C.white,fontSize:17}}>ProtekFlow</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          {isPro && <span style={{background:C.g500,color:C.g950,fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20}}>PRO</span>}
           <span style={{color:C.g400,fontSize:13}}>{profile?.full_name} · {consultant.sacpcmp_number}</span>
           <Link href="/" style={{color:C.g600,fontSize:12,textDecoration:'none',border:`1px solid ${C.g800}`,padding:'4px 12px',borderRadius:6}}>Sign out</Link>
         </div>
@@ -86,7 +84,7 @@ export default async function ConsultantDashboard() {
         <main style={{padding:32}}>
           <div style={{marginBottom:28}}>
             <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:600,color:C.g900,margin:'0 0 4px'}}>
-              Dashboard {isPro && <span style={{fontFamily:C.sans,fontSize:13,fontWeight:400,color:C.g600,marginLeft:8}}>Pro tier</span>}
+              Dashboard
             </h1>
             <p style={{fontSize:13,color:C.g600,margin:0}}>SACPCMP Reg: {consultant.sacpcmp_number}</p>
           </div>
@@ -95,8 +93,8 @@ export default async function ConsultantDashboard() {
           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:28}}>
             {[
               {label:'Pending files',    value:pending.length.toString(),            note:pending.length>0?'Action required':'All clear'},
-              {label:'Files this month', value:completedThisMonth.length.toString(), note:isPro?'Unlimited cap':'10 max (Free)'},
-              {label:'Earnings (month)', value:formatZAR(earningsThisMonth),         note:isPro?'After 15% platform fee':'25% platform fee'},
+              {label:'Files this month', value:completedThisMonth.length.toString(), note:'Signed and delivered'},
+              {label:'Earnings (month)', value:formatZAR(earningsThisMonth),         note:'After 20% platform fee'},
               {label:'Rating',           value:consultant.rating_avg>0?`${consultant.rating_avg}/5`:'—', note:`${consultant.rating_count} reviews`},
             ].map(s => (
               <div key={s.label} style={{background:C.white,border:`1px solid ${C.g100}`,borderRadius:12,padding:'16px 20px'}}>
@@ -127,7 +125,7 @@ export default async function ConsultantDashboard() {
                   </thead>
                   <tbody>
                     {pending.map((f:SheFileRow) => {
-                      const { consultantAmount } = splitRevenue(f.price_zar, consultant.tier as ConsultantTier)
+                      const { consultantAmount } = splitRevenue(f.price_zar)
                       const deadline = f.sla_deadline ? new Date(f.sla_deadline) : null
                       const overdue  = deadline && deadline < new Date()
                       return (
@@ -152,17 +150,6 @@ export default async function ConsultantDashboard() {
               </div>
             )}
           </div>
-
-          {/* Pro upsell */}
-          {!isPro && (
-            <div style={{background:C.g900,borderRadius:14,padding:'20px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}}>
-              <div>
-                <div style={{fontFamily:C.serif,fontSize:17,fontWeight:600,color:C.white,marginBottom:4}}>Upgrade to Pro — R999/month</div>
-                <div style={{fontSize:13,color:C.g300}}>Earn R3,825/file · Weekly payouts · Unlimited files. Pays for itself at 3 files/month.</div>
-              </div>
-              <Link href="/consultant/settings" style={{background:C.g500,color:C.g950,fontWeight:700,padding:'10px 22px',borderRadius:10,textDecoration:'none',fontSize:13,flexShrink:0}}>Go Pro →</Link>
-            </div>
-          )}
         </main>
       </div>
     </div>

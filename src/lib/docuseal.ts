@@ -53,13 +53,13 @@ export async function createSheFileSubmission(params: {
   consultantName: string
   contractorEmail: string
   contractorName: string
-  completionWebhookUrl: string
+  completionRedirectUrl: string   // where the signer's browser lands after signing (NOT a webhook)
 }): Promise<DocuSealSubmission> {
   const body = {
     template_id: SHE_TEMPLATE_ID,
     send_email: true,
-    // Where DocuSeal sends a POST when all parties have signed
-    completed_redirect_url: params.completionWebhookUrl,
+    // Browser redirect after signing. The completion webhook is configured in DocuSeal settings.
+    completed_redirect_url: params.completionRedirectUrl,
     submitters: [
       {
         email: params.consultantEmail,

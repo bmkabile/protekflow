@@ -18,11 +18,11 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   title: 'ProtekFlow — SHE Files in 48 Hours',
   description:
-    'Connect with SACPCMP-registered safety consultants. Fixed fee R4,500. Professionally signed SHE file in 48 hours. Compliant with OHS Act 85/1993.',
+    'Connect with SACPCMP-registered safety consultants. Fixed fee R7,500. Professionally signed SHE file in 48 hours. Compliant with OHS Act 85/1993.',
   keywords: ['SHE file', 'OHS compliance', 'SACPCMP', 'construction safety', 'South Africa'],
   openGraph: {
     title: 'ProtekFlow — SHE Files in 48 Hours',
-    description: 'Fixed fee R4,500. SACPCMP-signed. 48-hour delivery.',
+    description: 'Fixed fee R7,500. SACPCMP-signed. 48-hour delivery.',
     url: 'https://protekflow.co.za',
     siteName: 'ProtekFlow',
     locale: 'en_ZA',

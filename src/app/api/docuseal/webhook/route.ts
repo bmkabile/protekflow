@@ -3,17 +3,54 @@
 // Configure this URL in your DocuSeal template settings
 
 import { NextRequest, NextResponse } from 'next/server'
-import { parseDocuSealWebhook } from '@/lib/docuseal'
+import crypto from 'crypto'
+import { parseDocuSealWebhook, getSubmission } from '@/lib/docuseal'
 import { createAdminClient } from '@/lib/supabase-server'
 
+/**
+ * The webhook must carry a shared secret. In DocuSeal: Settings -> Webhooks -> add a custom
+ * header (default name x-docuseal-secret) with the value of DOCUSEAL_WEBHOOK_SECRET.
+ * Fails closed: with no secret configured, every call is rejected.
+ */
+function isAuthorised(request: NextRequest): boolean {
+  const secret = process.env.DOCUSEAL_WEBHOOK_SECRET
+  if (!secret) return false
+  const header = process.env.DOCUSEAL_WEBHOOK_HEADER || 'x-docuseal-secret'
+  const received = request.headers.get(header) ?? ''
+  const a = Buffer.from(received), b = Buffer.from(secret)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const { submissionId, isComplete, documentUrl } = parseDocuSealWebhook(body)
+  if (!isAuthorised(request)) {
+    console.warn('[DocuSeal] Webhook rejected: missing or wrong secret')
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
+  let body: any
+  try { body = await request.json() } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }) }
+  if (!body?.data?.id) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+
+  const { submissionId, isComplete, documentUrl: reportedUrl } = parseDocuSealWebhook(body)
+  let documentUrl = reportedUrl
 
   if (!isComplete) {
     // Partial signing — one party signed but not all. Log and wait.
     console.log(`[DocuSeal] Submission ${submissionId} not yet complete:`, body.data?.status)
     return NextResponse.json({ received: true })
+  }
+
+  // Defence in depth: confirm with DocuSeal itself that the submission really is completed
+  try {
+    const confirmed = await getSubmission(submissionId)
+    if (confirmed.status !== 'completed') {
+      console.warn(`[DocuSeal] Submission ${submissionId} reported complete but DocuSeal says ${confirmed.status}`)
+      return NextResponse.json({ error: 'Not completed' }, { status: 400 })
+    }
+    documentUrl = confirmed.documents?.[0]?.url ?? documentUrl
+  } catch (err) {
+    console.error('[DocuSeal] Could not confirm submission:', err)
+    return NextResponse.json({ error: 'Could not confirm' }, { status: 502 })
   }
 
   const supabase = createAdminClient()

@@ -4,12 +4,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
 import { generateSheFilePdf } from '@/lib/pdf-generator'
+import { splitRevenue } from '@/lib/pricing'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
@@ -109,10 +110,7 @@ export async function POST(
   })
 
   // Update transaction with correct tier-based fee split
-  const tier      = (file.consultant_detail as any)?.tier ?? 'free'
-  const feePct    = tier === 'pro' ? 15 : 25
-  const platformFee  = Math.round(file.price_zar * feePct / 100)
-  const consultantAmt = file.price_zar - platformFee
+  const { platformFee, consultantAmount: consultantAmt, feePct } = splitRevenue(file.price_zar)
 
   await admin.from('transactions')
     .update({

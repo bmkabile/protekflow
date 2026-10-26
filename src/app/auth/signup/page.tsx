@@ -61,7 +61,7 @@ export default function SignupPage() {
 
         <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:700,color:C.g900,margin:'0 0 4px'}}>Create account</h1>
         <p style={{fontSize:13,color:C.g600,margin:'0 0 24px'}}>
-          {role==='contractor' ? 'Get your SHE file in 48 hours — R4,500 fixed fee' : 'Start earning R3,375–R3,825 per signed SHE file'}
+          {role==='contractor' ? 'Get your SHE file in 48 hours — R7,500 fixed fee' : 'Start earning R6,000 per signed SHE file'}
         </p>
 
         <form onSubmit={handleSignup} style={{display:'flex',flexDirection:'column',gap:14}}>

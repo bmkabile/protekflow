@@ -32,7 +32,7 @@ const STATUS_STYLE: Record<string,{label:string;bg:string;color:string}> = {
 }
 
 export default async function ContractorFilePage({ params }: { params: { id: string } }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
@@ -187,7 +187,7 @@ export default async function ContractorFilePage({ params }: { params: { id: str
                   </div>
                 </div>
                 {[
-                  ['Tier',   (file as any).consultant_detail?.tier === 'pro' ? 'Pro Verified ★' : 'Verified'],
+                  ['Status',  'Verified'],
                   ['Rating', (file as any).consultant_detail?.rating_avg > 0 ? `${(file as any).consultant_detail.rating_avg}/5` : 'New consultant'],
                   ['Matched', file.matched_at ? new Date(file.matched_at).toLocaleDateString('en-ZA') : '—'],
                 ].map(([k,v]) => (
