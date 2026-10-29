@@ -15,7 +15,7 @@ export const FIELD_LABELS: Record<string, string> = {
   project_type_label: 'type of work', contractor_name: 'principal contractor', cidb_number: 'CIDB registration number',
   client_name: 'client name', site_agent: 'site agent name', start_date: 'start date', end_date: 'completion date',
   duration_days: 'duration', worker_count: 'number of workers', project_value: 'contract value',
-  subcontractors: 'subcontractors',
+  subcontractors: 'subcontractors', high_risk_activities: 'high-risk activities',
 }
 /** Fields that may legitimately be empty and get a default instead of a placeholder */
 const OPTIONAL_DEFAULTS: Record<string, string> = { subcontractors: 'None declared at intake.' }
@@ -47,6 +47,8 @@ export function findAiBlocks(content: string): AiBlockSpec[] {
 /** Fills {{field}} merge fields. Missing values become placeholders for the professional. */
 export function mergeFields(text: string, data: TemplateData): { text: string; unknown: string[]; missing: string[] } {
   const unknown: string[] = [], missing: string[] = []
+  // Older templates write merge fields as [CONTRACTOR TO PROVIDE: field_name]; treat them the same
+  text = text.replace(/\[CONTRACTOR TO PROVIDE:\s*([a-z_][a-z0-9_]*)\s*\]/gi, (_m, k: string) => `{{${k.toLowerCase()}}}`)
   const merged = text.replace(/\{\{([a-z_][a-z0-9_]*)\}\}/g, (_m, key: string) => {
     if (!(key in FIELD_LABELS) && !(key in data)) {
       unknown.push(key)
@@ -154,4 +156,27 @@ export async function runPool<T, R>(items: T[], limit: number, fn: (item: T, i: 
   })
   await Promise.all(workers)
   return out
+}
+
+/**
+ * Brings older templates into the current format: Windows line endings, and plain
+ * "SECTION n - TITLE" lines become "## " headings so the editor and PDF can structure them.
+ * Idempotent: a template already using "## " headings is returned unchanged (apart from line endings).
+ */
+export function normaliseTemplate(content: string): string {
+  let t = content.replace(/\r\n?/g, '\n').trim()
+  if (/^##\s/m.test(t)) return t + '\n'
+  const lines = t.split('\n')
+  const firstSection = lines.findIndex(l => /^SECTION\s+\d+\s*[-:\u2013\u2014]\s*\S/i.test(l.trim()))
+  if (firstSection === -1) return t + '\n'
+  const out: string[] = []
+  const title = lines[0].trim() && firstSection > 0 ? `# ${lines[0].trim()}` : null
+  if (title) out.push(title, '')
+  out.push('## PROJECT DETAILS')
+  lines.forEach((l, i) => {
+    if (i === 0 && title) return
+    if (i < firstSection) { out.push(l); return }
+    out.push(/^SECTION\s+\d+\s*[-:\u2013\u2014]\s*\S/i.test(l.trim()) ? `## ${l.trim()}` : l)
+  })
+  return out.join('\n').replace(/\n{3,}/g, '\n\n') + '\n'
 }

@@ -111,7 +111,8 @@ export default function ConsultantFileEdit() {
       setSections(rs.sections); setValues(rs.values ?? {}); setReviewed(rs.reviewed ?? rs.sections.map(() => false))
       setInitialTotal(rs.initialTotal ?? countPlaceholders(f.generated_draft))
     } else {
-      const secs = splitSections(f.generated_draft).filter(s => s.title || s.body.trim())
+      // drop a bare "# TITLE" preamble: the title is on the PDF cover, so it needs no review
+      const secs = splitSections(f.generated_draft).filter(s => s.title || s.body.split('\n').some(l => l.trim() && !/^#\s/.test(l.trim())))
       setSections(secs); setValues({}); setReviewed(secs.map(() => false))
       setInitialTotal(countPlaceholders(f.generated_draft))
     }

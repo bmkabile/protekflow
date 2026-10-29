@@ -20,22 +20,28 @@ export default function SignupPage() {
   const [form, setForm] = useState({ full_name:'', email:'', password:'', company_name:'', phone:'', sacpcmp_number:'', cidb_number:'' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   const set = (k:string) => (e:React.ChangeEvent<HTMLInputElement>) => setForm(f => ({...f,[k]:e.target.value}))
 
   const handleSignup = async (e:React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError('')
     const supabase = createClient()
+    // The profile (and contractor/consultant record) is created by a database trigger from this
+    // metadata, so it works whether or not email confirmation is switched on.
     const { data: authData, error: authErr } = await supabase.auth.signUp({
       email: form.email, password: form.password,
-      options: { data: { full_name: form.full_name, role } }
+      options: { data: {
+        full_name: form.full_name, role, company_name: form.company_name, phone: form.phone,
+        cidb_number: form.cidb_number, sacpcmp_number: form.sacpcmp_number,
+      } }
     })
     if (authErr) { setError(authErr.message); setLoading(false); return }
-    if (!authData.user) { setError('Signup failed — please try again.'); setLoading(false); return }
-    const uid = authData.user.id
-    await supabase.from('profiles').insert({ id:uid, role, full_name:form.full_name, company_name:form.company_name||null, phone:form.phone||null })
-    if (role==='contractor') { await supabase.from('contractors').insert({ id:uid, cidb_number:form.cidb_number||null }) }
-    else { await supabase.from('consultants').insert({ id:uid, sacpcmp_number:form.sacpcmp_number, verification_status:'pending' }) }
+    if (!authData.user) { setError('Signup failed -- please try again.'); setLoading(false); return }
+    if (!authData.session) {   // email confirmation is on: no session until the link is clicked
+      setNotice('Account created. Check your email and click the confirmation link, then sign in.')
+      setLoading(false); return
+    }
     router.push(`/${role}`); router.refresh()
   }
 
@@ -81,6 +87,7 @@ export default function SignupPage() {
           )}
           <div><label style={lbl}>Password</label><input style={inp} type="password" placeholder="At least 8 characters" value={form.password} onChange={set('password')} required minLength={8} /></div>
 
+          {notice && <div style={{background:'#dcfce7',border:'1px solid #bbf7d0',color:'#166534',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{notice}</div>}
           {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
           <button type="submit" disabled={loading}
             style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>

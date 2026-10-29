@@ -2,7 +2,7 @@
 // Creates a new SHE file after the contractor completes the intake wizard
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
 import { buildPayFastPayment, } from '@/lib/payfast'
 import { getFilePrice } from '@/lib/pricing'
 import { PROJECT_TYPE_MAP, PROJECT_TYPE_OPTIONS, HIGH_RISK_OPTIONS, CLIENT_TYPE_OPTIONS, isComplex } from '@/lib/templates'
@@ -77,17 +77,20 @@ export async function POST(request: NextRequest) {
     subcontractors: cleanUserText(subcontractors, 1500),
   }
 
-  // 4. Insert the SHE file (status: 'draft' → will become 'payment_pending')
-  const { data: file, error: insertError } = await supabase
+  // 4. Insert the SHE file. Files are written server-side only (browsers have no insert rights);
+  //    owner, price and status are fixed here and never taken from the request.
+  const admin: any = createAdminClient()
+  const { data: file, error: insertError } = await admin
     .from('she_files')
     .insert({
-      contractor_id: user.id,
-      price_zar: priceZar,
-      status: 'payment_pending',
+      ...fileData,
       project_type_id: typeRow?.id ?? null,
       wizard_data,
       is_complex: complex,
-      ...fileData,
+      // fixed last so nothing in the request can override them
+      contractor_id: user.id,
+      price_zar: priceZar,
+      status: 'payment_pending',
     })
     .select()
     .single()
@@ -104,7 +107,7 @@ export async function POST(request: NextRequest) {
       section_key: key,
       content,
     }))
-    await supabase.from('she_file_sections').insert(sectionRows)
+    await admin.from('she_file_sections').insert(sectionRows)
   }
 
   // 6. Build PayFast payment object

@@ -2,7 +2,7 @@
 // Offline checks for the template engine (no network, no database).
 import fs from 'fs'
 import assert from 'assert'
-import { findAiBlocks, mergeFields, validateAiOutput, normaliseAiOutput, assembleDraft, cleanUserText } from '../src/lib/template-engine'
+import { normaliseTemplate, findAiBlocks, mergeFields, validateAiOutput, normaliseAiOutput, assembleDraft, cleanUserText } from '../src/lib/template-engine'
 import { splitSections, joinSections, parseBlocks, listPlaceholders, applyFieldValues, stripAiMarkers, sanitizeForPdf } from '../src/lib/doc-format'
 import { buildTemplateData } from '../src/lib/draft'
 
@@ -73,4 +73,22 @@ ok('applyFieldValues fills nth placeholder only; AI markers stripped', () => {
   assert.equal(stripAiMarkers('[[AI]]\ntext\n[[/AI]]'), '\ntext\n')
 })
 ok('pdf sanitiser removes unencodable characters', () => assert.equal(sanitizeForPdf('a \u2265 b \u2013 c \u2713 \u4e2d'), 'a >= b - c v ?'))
+
+ok('legacy templates (CRLF, SECTION lines, [CONTRACTOR TO PROVIDE: x]) are read correctly', () => {
+  const legacy = ['', 'HEALTH AND SAFETY FILE', 'PROJECT: [CONTRACTOR TO PROVIDE: project_name]', 'CLIENT: [CONTRACTOR TO PROVIDE: client_name]',
+    'HIGH-RISK ACTIVITIES DECLARED: [CONTRACTOR TO PROVIDE: high_risk_activities]', 'REVIEWED BY: [CONSULTANT TO COMPLETE] | DATE: [CONSULTANT TO COMPLETE]', '',
+    'SECTION 1 - LEGAL FRAMEWORK', 'This SHE file has been compiled in accordance with:', '- Occupational Health and Safety Act 85 of 1993', '',
+    'SECTION 2 - PROJECT TEAM', 'Name: [CONTRACTOR TO PROVIDE: site_agent]', 'Phone: [CONSULTANT TO COMPLETE - attach]', '[ ] First Aider appointed', 'Unknown: [CONTRACTOR TO PROVIDE: nope_field]', ''].join('\r\n')
+  const norm = normaliseTemplate(legacy)
+  assert.ok(!/\r/.test(norm)); assert.equal(normaliseTemplate(norm), norm, 'idempotent')
+  const secs = splitSections(norm); assert.deepEqual(secs.map(s => s.title), ['', 'PROJECT DETAILS', 'SECTION 1 - LEGAL FRAMEWORK', 'SECTION 2 - PROJECT TEAM'])
+  assert.equal(findAiBlocks(norm).length, 0)
+  const out = assembleDraft(norm, data, [])
+  assert.match(out.text, /PROJECT: Clinic Extension/); assert.match(out.text, /Name: T\. Dlamini/)
+  assert.match(out.text, /HIGH-RISK ACTIVITIES DECLARED: Working at height/)
+  assert.deepEqual(out.unknown, ['nope_field'])
+  assert.ok(!/CONTRACTOR TO PROVIDE/.test(out.text), 'no contractor tokens left')
+  assert.equal(listPlaceholders(out.text).length, 4, 'two review fields + attach + the unknown merge field')
+  assert.ok(splitSections(out.text)[3].body.includes('[ ] First Aider appointed'), 'checkbox lines untouched')
+})
 console.log(`\n${n} checks passed`)

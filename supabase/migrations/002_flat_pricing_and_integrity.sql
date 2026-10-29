@@ -2,14 +2,15 @@
 -- Flat R7,500 file price with a 20% platform fee, payment integrity, and closing RLS gaps.
 -- Run in the Supabase SQL editor (or `supabase db push`). Safe to re-run.
 
--- 1. Pricing config
-UPDATE platform_config SET value = '750000', note = 'ZAR cents - R7,500' WHERE key = 'file_price_standard';
+-- 1. Pricing config (upsert: works whether or not the rows already exist)
 DELETE FROM platform_config WHERE key IN (
   'file_price_volume_a', 'file_price_volume_b', 'file_price_volume_c',
   'pro_monthly_fee', 'platform_fee_free_pct', 'platform_fee_pro_pct'
 );
-INSERT INTO platform_config (key, value, note)
-VALUES ('platform_fee_pct', '20', 'Percentage - flat platform fee (professional receives the rest)')
+INSERT INTO platform_config (key, value, note) VALUES
+  ('file_price_standard', '750000', 'ZAR cents - R7,500 per SHE file'),
+  ('platform_fee_pct',    '20',     'Percentage - flat platform fee (professional receives the rest)'),
+  ('sla_hours',           '48',     'Delivery target in hours from payment')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, note = EXCLUDED.note;
 ALTER TABLE she_files ALTER COLUMN price_zar SET DEFAULT 750000;
 

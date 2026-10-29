@@ -4,7 +4,7 @@
 import { createAdminClient } from './supabase-server'
 import { callClaude, aiModel } from './ai'
 import {
-  findAiBlocks, assembleDraft, validateAiOutput, normaliseAiOutput, describeProject,
+  findAiBlocks, assembleDraft, validateAiOutput, normaliseAiOutput, describeProject, normaliseTemplate,
   buildBlockUserPrompt, AI_SYSTEM_PROMPT, runPool, cleanUserText, type TemplateData,
 } from './template-engine'
 import { PROJECT_TYPE_MAP, FALLBACK_TYPE_CODE, projectTypeLabel, highRiskLabel } from './templates'
@@ -40,6 +40,7 @@ export function buildTemplateData(file: any, contractorName?: string): { data: T
     worker_count: w.workerCount ? String(w.workerCount) : undefined,
     project_value: file.project_value ? `R${Number(file.project_value).toLocaleString('en-ZA')}` : undefined,
     subcontractors: w.subcontractors,
+    high_risk_activities: activityLabels.length ? activityLabels.join(', ') : 'None declared',
   }
   return { data, activityLabels }
 }
@@ -89,7 +90,8 @@ export async function runDraft(fileId: string): Promise<DraftResult> {
 
     const contractorName = file.contractor?.company_name || file.contractor?.full_name
     const { data, activityLabels } = buildTemplateData(file, contractorName)
-    const specs = findAiBlocks(tpl.content)
+    const content = normaliseTemplate(tpl.content)
+    const specs = findAiBlocks(content)
     const info = describeProject(data, activityLabels)
 
     const blockReports: any[] = []
@@ -109,7 +111,7 @@ export async function runDraft(fileId: string): Promise<DraftResult> {
       return null
     })
 
-    const assembled = assembleDraft(tpl.content, data, results)
+    const assembled = assembleDraft(content, data, results)
     const report = {
       model: aiModel(), template_version: tpl.version, ms: Date.now() - t0,
       blocks: blockReports, unknown_fields: assembled.unknown, missing_fields: assembled.missing,

@@ -21,6 +21,9 @@ The template is plain text:
 
 Placeholders may not contain `]`. Every placeholder must be resolved before a file can be signed.
 
+## Older templates
+Templates written before this engine (project types T01 to T10 in your database) use `[CONTRACTOR TO PROVIDE: project_name]` for merge fields and `SECTION n - TITLE` lines for headings. The engine reads these as they are: merge fields are filled, headings become sections, and the file's line endings are cleaned. They contain no `{{AI: ...}}` blocks, so drafts from them have no AI-written text until blocks are added. A project type without its own active template uses the general template (T00).
+
 ## What protects the document
 - Fixed template text and all `[CONSULTANT TO ...]` placeholders are never sent to the AI and cannot be changed by it.
 - Contractor-typed text is stripped of brackets/braces so it cannot fake placeholders or markers.
