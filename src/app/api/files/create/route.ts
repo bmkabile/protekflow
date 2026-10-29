@@ -77,20 +77,21 @@ export async function POST(request: NextRequest) {
     subcontractors: cleanUserText(subcontractors, 1500),
   }
 
-  // 4. Insert the SHE file. Files are written server-side only (browsers have no insert rights);
-  //    owner, price and status are fixed here and never taken from the request.
+  // 4. Insert the SHE file (status: 'draft' → will become 'payment_pending')
+  // Inserted with the service role (user and role were verified above). The browser can no longer
+  // insert she_files directly, which stops a contractor writing status='paid' or price_zar=0
+  // straight to the REST API. See migration 005.
   const admin: any = createAdminClient()
   const { data: file, error: insertError } = await admin
     .from('she_files')
     .insert({
-      ...fileData,
-      project_type_id: typeRow?.id ?? null,
-      wizard_data,
-      is_complex: complex,
-      // fixed last so nothing in the request can override them
       contractor_id: user.id,
       price_zar: priceZar,
       status: 'payment_pending',
+      project_type_id: typeRow?.id ?? null,
+      wizard_data,
+      is_complex: complex,
+      ...fileData,
     })
     .select()
     .single()

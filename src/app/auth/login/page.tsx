@@ -17,7 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(params.get('error') ?? '')
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError('')
@@ -25,7 +25,9 @@ export default function LoginPage() {
     const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
     if (err) { setError(err.message); setLoading(false); return }
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
-    router.push(params.get('redirect') ?? `/${profile?.role ?? 'contractor'}`)
+    const redirect = params.get('redirect')
+    const safe = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : null
+    router.push(safe ?? `/${profile?.role ?? 'contractor'}`)
     router.refresh()
   }
 
@@ -61,6 +63,9 @@ export default function LoginPage() {
                 style={{width:'100%',padding:'10px 14px',border:`1px solid ${C.g100}`,borderRadius:8,fontSize:14,color:C.g900,fontFamily:C.sans,outline:'none',boxSizing:'border-box' as const,background:C.white}} />
             </div>
           ))}
+          <div style={{textAlign:'right',marginTop:-6}}>
+            <Link href="/auth/forgot-password" style={{fontSize:12,color:C.g700,textDecoration:'none',fontWeight:500}}>Forgot password?</Link>
+          </div>
           {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
           <button type="submit" disabled={loading}
             style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>

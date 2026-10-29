@@ -60,6 +60,9 @@ export default function AdminLoginPage() {
             <label style={{display:'block',fontSize:13,fontWeight:500,color:C.g700,marginBottom:5}}>Password</label>
             <input style={inp} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
           </div>
+          <div style={{textAlign:'right',marginTop:-6}}>
+            <Link href="/auth/forgot-password" style={{fontSize:12,color:C.g700,textDecoration:'none',fontWeight:500}}>Forgot password?</Link>
+          </div>
           {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
           <button type="submit" disabled={loading}
             style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>

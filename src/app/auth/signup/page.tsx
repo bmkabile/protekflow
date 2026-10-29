@@ -20,29 +20,49 @@ export default function SignupPage() {
   const [form, setForm] = useState({ full_name:'', email:'', password:'', company_name:'', phone:'', sacpcmp_number:'', cidb_number:'' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [confirmSent, setConfirmSent] = useState(false)
 
   const set = (k:string) => (e:React.ChangeEvent<HTMLInputElement>) => setForm(f => ({...f,[k]:e.target.value}))
 
   const handleSignup = async (e:React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError('')
     const supabase = createClient()
-    // The profile (and contractor/consultant record) is created by a database trigger from this
-    // metadata, so it works whether or not email confirmation is switched on.
+    // Profile rows are created by the handle_new_user trigger (migration 005) from this metadata.
+    // Doing it in the database means it still works when email confirmation is switched on
+    // (no session yet, so client-side inserts would be blocked by RLS).
     const { data: authData, error: authErr } = await supabase.auth.signUp({
       email: form.email, password: form.password,
-      options: { data: {
-        full_name: form.full_name, role, company_name: form.company_name, phone: form.phone,
-        cidb_number: form.cidb_number, sacpcmp_number: form.sacpcmp_number,
-      } }
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: {
+          role,
+          full_name: form.full_name,
+          company_name: form.company_name || null,
+          phone: form.phone || null,
+          cidb_number: role === 'contractor' ? (form.cidb_number || null) : null,
+          sacpcmp_number: role === 'consultant' ? form.sacpcmp_number : null,
+        },
+      },
     })
     if (authErr) { setError(authErr.message); setLoading(false); return }
-    if (!authData.user) { setError('Signup failed -- please try again.'); setLoading(false); return }
-    if (!authData.session) {   // email confirmation is on: no session until the link is clicked
-      setNotice('Account created. Check your email and click the confirmation link, then sign in.')
-      setLoading(false); return
+    if (!authData.user) { setError('Signup failed — please try again.'); setLoading(false); return }
+    if (!authData.session) {
+      // Email confirmation is on: no session until they click the link.
+      setError(''); setLoading(false); setConfirmSent(true); return
     }
     router.push(`/${role}`); router.refresh()
+  }
+
+  if (confirmSent) {
+    return (
+      <div style={{minHeight:'100vh',background:C.g950,display:'flex',alignItems:'center',justifyContent:'center',padding:24,fontFamily:C.sans}}>
+        <div style={{background:C.white,borderRadius:20,padding:'40px 36px',width:'100%',maxWidth:440}}>
+          <h1 style={{fontFamily:C.serif,fontSize:24,fontWeight:700,color:C.g900,margin:'0 0 8px'}}>Confirm your email</h1>
+          <p style={{fontSize:14,color:C.g700,lineHeight:1.55,margin:'0 0 20px'}}>We sent a confirmation link to <strong>{form.email}</strong>. Click it to activate your account, then log in.</p>
+          <Link href="/auth/login" style={{display:'block',textAlign:'center',background:C.g900,color:C.white,fontWeight:700,padding:12,borderRadius:10,textDecoration:'none',fontSize:15}}>Go to log in</Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -87,7 +107,6 @@ export default function SignupPage() {
           )}
           <div><label style={lbl}>Password</label><input style={inp} type="password" placeholder="At least 8 characters" value={form.password} onChange={set('password')} required minLength={8} /></div>
 
-          {notice && <div style={{background:'#dcfce7',border:'1px solid #bbf7d0',color:'#166534',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{notice}</div>}
           {error && <div style={{background:'#fee2e2',border:'1px solid #fecaca',color:'#991b1b',fontSize:13,borderRadius:8,padding:'10px 14px'}}>{error}</div>}
           <button type="submit" disabled={loading}
             style={{background:C.g900,color:C.white,fontWeight:700,padding:'12px',borderRadius:10,border:'none',cursor:'pointer',fontSize:15,fontFamily:C.sans,opacity:loading?0.6:1,marginTop:4}}>
