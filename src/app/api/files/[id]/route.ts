@@ -42,7 +42,10 @@ export async function GET(
   return NextResponse.json({ file })
 }
 
-// PATCH — update file (consultant updates status, adds notes)
+// PATCH -- update a file.
+//   admin:      status, notes, review_started_at, consultant_id
+//   consultant: only their OWN assigned file: notes, review_state, and the move to 'in_review'
+//   contractor: not allowed
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -51,28 +54,41 @@ export async function PATCH(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const body   = await request.json()
-  const admin  = createAdminClient()
+  let body: any
+  try { body = await request.json() } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }) }
+  const admin: any = createAdminClient()
 
-  // Verify ownership
   const { data: file } = await admin
     .from('she_files').select('consultant_id, contractor_id, status').eq('id', params.id).single()
   if (!file) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).single()
+  const role = profile?.role
 
-  if (profile?.role === 'consultant' && file.consultant_id !== user.id)
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
-  // Allowed fields for update
-  const allowed = ['status', 'notes', 'review_started_at', 'consultant_id']
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  allowed.forEach(k => { if (body[k] !== undefined) update[k] = body[k] })
+
+  if (role === 'admin') {
+    ;['status', 'notes', 'review_started_at', 'consultant_id'].forEach(k => { if (body[k] !== undefined) update[k] = body[k] })
+  } else if (role === 'consultant' && file.consultant_id === user.id) {
+    if (body.notes !== undefined) update.notes = String(body.notes).slice(0, 5000)
+    if (body.review_state !== undefined) {
+      if (JSON.stringify(body.review_state).length > 400_000)
+        return NextResponse.json({ error: 'Review state too large' }, { status: 413 })
+      update.review_state = body.review_state
+    }
+    if (body.status !== undefined) {
+      // The only status a consultant may set is in_review, and only while the file is still open
+      if (body.status !== 'in_review' || !['paid', 'matched', 'in_review'].includes(file.status))
+        return NextResponse.json({ error: 'Status change not allowed' }, { status: 403 })
+      update.status = 'in_review'
+      if (file.status !== 'in_review') update.review_started_at = new Date().toISOString()
+    }
+  } else {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const { data, error } = await admin
     .from('she_files').update(update).eq('id', params.id).select().single()
-
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ file: data })
 }

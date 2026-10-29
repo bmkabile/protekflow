@@ -1,22 +1,18 @@
 // src/lib/templates.ts
-// Template selection logic — maps wizard answers to the right SHE template
-import { createAdminClient } from './supabase-server'
+// Intake vocabulary (project types, high-risk activities) and complexity rules.
+// Template content itself lives in the database (she_templates) - see template-engine.ts.
 
-export type WizardAnswers = {
-  projectType:        string        // e.g. 'residential', 'electrical'
-  projectName:        string
-  projectAddress:     string
-  projectValue:       number        // ZAR
-  durationDays:       number
+export type ClientType = 'private' | 'public_sector' | 'soe' | 'cidb_grade6plus'
+
+/** Extra intake answers stored in she_files.wizard_data (camelCase JSON) */
+export type WizardData = {
+  projectType:        string            // key of PROJECT_TYPE_MAP
   workerCount:        number
-  highRiskActivities: string[]      // e.g. ['working_at_height', 'excavation']
-  clientType:         'private' | 'public_sector' | 'soe' | 'cidb_grade6plus'
-  contractorName:     string
+  highRiskActivities: string[]          // values from HIGH_RISK_OPTIONS
+  clientType:         ClientType
   cidbNumber:         string
-  startDate:          string
-  endDate:            string
-  clientName?:        string
-  siteAgent?:         string
+  cidbGrade?:         string
+  subcontractors?:    string            // free text, one per line
 }
 
 export const PROJECT_TYPE_MAP: Record<string, string> = {
@@ -29,10 +25,12 @@ export const PROJECT_TYPE_MAP: Record<string, string> = {
   demolition:          'T07',
   painting_cladding:   'T08',
   interior_fitout:     'T09',
+  interior_fit_out:    'T09',
   general_maintenance: 'T10',
 }
 
-// Project types in plain English for the wizard dropdown
+export const FALLBACK_TYPE_CODE = 'T00'
+
 export const PROJECT_TYPE_OPTIONS = [
   { value: 'residential',         label: 'Residential construction' },
   { value: 'light_commercial',    label: 'Light commercial construction' },
@@ -47,7 +45,7 @@ export const PROJECT_TYPE_OPTIONS = [
 ]
 
 export const HIGH_RISK_OPTIONS = [
-  { value: 'working_at_height',   label: 'Working at height (>2m)' },
+  { value: 'working_at_height',   label: 'Working at height (above 2 m)' },
   { value: 'excavation',          label: 'Excavation / trenching' },
   { value: 'confined_spaces',     label: 'Confined spaces' },
   { value: 'asbestos',            label: 'Asbestos handling' },
@@ -58,85 +56,27 @@ export const HIGH_RISK_OPTIONS = [
   { value: 'explosives',          label: 'Explosives / blasting' },
 ]
 
-/** Returns true if project triggers complex pricing (R9,000) and CHSM-only matching */
-export function isComplex(answers: WizardAnswers): boolean {
-  if (answers.projectValue > 5_000_000) return true
-  if (answers.highRiskActivities.length >= 3) return true
-  if (answers.clientType === 'soe') return true
-  if (answers.clientType === 'cidb_grade6plus') return true
+export const CLIENT_TYPE_OPTIONS: { value: ClientType; label: string }[] = [
+  { value: 'private',         label: 'Private client' },
+  { value: 'public_sector',   label: 'Public sector (municipality, department)' },
+  { value: 'soe',             label: 'State-owned entity' },
+  { value: 'cidb_grade6plus', label: 'CIDB grade 6 or higher project' },
+]
+
+export const projectTypeLabel = (v?: string) =>
+  PROJECT_TYPE_OPTIONS.find(o => o.value === v)?.label ?? 'Construction work'
+export const highRiskLabel = (v: string) =>
+  HIGH_RISK_OPTIONS.find(o => o.value === v)?.label ?? v
+export const clientTypeLabel = (v?: string) =>
+  CLIENT_TYPE_OPTIONS.find(o => o.value === v)?.label ?? ''
+
+/**
+ * Complex projects need a more senior signer (CHSM-level) when matching.
+ * This no longer affects price: every file is the same fixed fee.
+ */
+export function isComplex(a: { projectValue?: number; highRiskActivities: string[]; clientType?: string }): boolean {
+  if ((a.projectValue ?? 0) > 5_000_000) return true
+  if (a.highRiskActivities.length >= 3) return true
+  if (a.clientType === 'soe' || a.clientType === 'cidb_grade6plus') return true
   return false
-}
-
-/** Selects the correct template and returns everything needed to generate a draft */
-export async function selectTemplate(answers: WizardAnswers) {
-  const code = PROJECT_TYPE_MAP[answers.projectType]
-  if (!code) throw new Error(`Unknown project type: ${answers.projectType}`)
-
-  const complex = isComplex(answers)
-  const supabase = createAdminClient()
-
-  const { data, error } = await supabase
-    .from('project_types')
-    .select(`
-      id, code, label, requires_chsm, high_risk, price_standard, price_complex,
-      she_templates (
-        id, content, version,
-        customisation_minutes_min, customisation_minutes_max
-      )
-    `)
-    .eq('code', code)
-    .single()
-
-  if (error || !data) throw new Error(`Project type not found: ${code}`)
-
-  const templates = (data as any).she_templates as any[]
-  const template  = templates?.find((t: any) => t.is_active !== false) ?? templates?.[0]
-
-  return {
-    projectTypeId:     data.id,
-    templateId:        template?.id ?? null,
-    templateContent:   template?.content ?? null,
-    templateVersion:   template?.version ?? '1.0',
-    isComplex:         complex,
-    requiresChsm:      complex || data.requires_chsm,
-    price:             complex ? data.price_complex : data.price_standard,
-    customisationMins: {
-      min: template?.customisation_minutes_min ?? 30,
-      max: template?.customisation_minutes_max ?? 45,
-    },
-  }
-}
-
-/** Builds the Claude prompt — fills contractor fields, leaves consultant fields intact */
-export function buildClaudePrompt(templateContent: string, answers: WizardAnswers): string {
-  return `You are a South African construction health and safety document specialist with deep knowledge of the OHS Act 85/1993 and Construction Regulations 2014.
-
-Using the SHE file template below and the contractor's project information, produce a completed draft SHE file.
-
-STRICT RULES:
-1. Replace every placeholder marked [CONTRACTOR TO PROVIDE] or [FROM WIZARD] with the actual project information provided below.
-2. Leave every placeholder marked [CONSULTANT TO COMPLETE], [CONSULTANT TO INSERT], or [CONSULTANT TO VERIFY] EXACTLY as-is — these are for the SACPCMP professional reviewer.
-3. Do NOT add, remove, or reorder any sections.
-4. Preserve ALL table structures, section headings, and numbering exactly.
-5. Output the completed document as plain text with identical structure to the template.
-6. For any risk assessments, use the specific high-risk activities declared below.
-7. All dates must be in South African format: DD/MM/YYYY.
-
-PROJECT INFORMATION:
-- Project name: ${answers.projectName}
-- Site address: ${answers.projectAddress}
-- Principal contractor: ${answers.contractorName}
-- CIDB registration: ${answers.cidbNumber}
-- Project value: R${answers.projectValue.toLocaleString('en-ZA')}
-- Client / employer: ${answers.clientName ?? '[CONSULTANT TO COMPLETE]'}
-- Site agent: ${answers.siteAgent ?? '[CONSULTANT TO COMPLETE]'}
-- Start date: ${answers.startDate}
-- Completion date: ${answers.endDate}
-- Duration: ${answers.durationDays} days
-- Workers on site: ${answers.workerCount}
-- High-risk activities: ${answers.highRiskActivities.length > 0 ? answers.highRiskActivities.join(', ') : 'None declared by contractor'}
-- Client type: ${answers.clientType}
-
-TEMPLATE:
-${templateContent}`
 }

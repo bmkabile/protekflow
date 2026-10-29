@@ -4,6 +4,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, createAdminClient } from '@/lib/supabase-server'
 import { generateSheFilePdf } from '@/lib/pdf-generator'
+import { stripAiMarkers, countPlaceholders } from '@/lib/doc-format'
+import { highRiskLabel, projectTypeLabel } from '@/lib/templates'
 import { splitRevenue } from '@/lib/pricing'
 
 export async function POST(
@@ -29,14 +31,22 @@ export async function POST(
 
   if (!file) return NextResponse.json({ error: 'File not found' }, { status: 404 })
   if (file.consultant_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!['matched', 'in_review'].includes(file.status))
+    return NextResponse.json({ error: `This file is ${file.status} and can no longer be signed here.` }, { status: 409 })
 
   const body = await request.json()
   const { completedText, signatureBase64 } = body
 
   if (!completedText || completedText.trim().length < 100)
     return NextResponse.json({ error: 'Document text is too short — please complete all sections.' }, { status: 422 })
-  if (!signatureBase64 || !signatureBase64.startsWith('data:image'))
-    return NextResponse.json({ error: 'Signature is required.' }, { status: 422 })
+  if (!signatureBase64 || !/^data:image\/png;base64,/.test(signatureBase64) || signatureBase64.length > 700_000)
+    return NextResponse.json({ error: 'A drawn signature (PNG) is required.' }, { status: 422 })
+
+  // The document must be finished: no unresolved placeholder may reach a signed file
+  const cleanText = stripAiMarkers(completedText)
+  const remaining = countPlaceholders(cleanText)
+  if (remaining > 0)
+    return NextResponse.json({ error: `${remaining} placeholder(s) are still unresolved. Complete or remove them before signing.` }, { status: 422 })
 
   // Build the PDF
   const consultantName = (file.consultant as any)?.full_name ?? 'Consultant'
@@ -44,8 +54,9 @@ export async function POST(
   const sacpcmpCat     = (file.consultant_detail as any)?.sacpcmp_category ?? 'CHSO'
 
   let pdfBytes: Uint8Array
+  let pdfSha256 = ''
   try {
-    pdfBytes = await generateSheFilePdf({
+    const generated = await generateSheFilePdf({
       fileNumber:            file.file_number,
       projectName:           file.project_name,
       projectAddress:        file.project_address,
@@ -60,47 +71,44 @@ export async function POST(
       contractorName:        (file.contractor as any)?.company_name ?? (file.contractor as any)?.full_name ?? '',
       cidbNumber:            (file.wizard_data as any)?.cidbNumber ?? '',
       workerCount:           String((file.wizard_data as any)?.workerCount ?? ''),
-      highRiskActivities:    ((file.wizard_data as any)?.highRiskActivities ?? []).join(', ') || 'None declared',
-      projectType:           (file.project_type as any)?.label ?? '',
+      highRiskActivities:    ((file.wizard_data as any)?.highRiskActivities ?? []).map(highRiskLabel).join(', ') || 'None declared',
+      projectType:           (file.project_type as any)?.label ?? projectTypeLabel((file.wizard_data as any)?.projectType),
       consultantName,
       sacpcmpNumber:         sacpcmpNum,
       sacpcmpCategory:       sacpcmpCat,
       signingDate:           new Date().toLocaleDateString('en-ZA', { dateStyle: 'long' }),
-      documentText:          completedText,
+      documentText:          cleanText,
       signatureImageBase64:  signatureBase64,
     })
+    pdfBytes = generated.bytes
+    pdfSha256 = generated.pdfSha256
   } catch (err: any) {
     console.error('[complete] PDF generation failed:', err)
     return NextResponse.json({ error: 'PDF generation failed: ' + err.message }, { status: 500 })
   }
 
-  // Upload PDF to Supabase Storage
-  const fileName    = `she-files/${file.file_number}-signed.pdf`
+  // Upload to the PRIVATE bucket. The path contains the file's UUID, and downloads go through
+  // /api/files/[id]/download, which checks who is asking and issues a short-lived link.
+  const storagePath = `${params.id}/${file.file_number}-signed.pdf`
   const { error: uploadError } = await admin.storage
     .from('signed-files')
-    .upload(fileName, pdfBytes, {
-      contentType:  'application/pdf',
-      upsert:       true,
-    })
+    .upload(storagePath, pdfBytes, { contentType: 'application/pdf', upsert: true })
 
   if (uploadError) {
     console.error('[complete] Storage upload failed:', uploadError)
     return NextResponse.json({ error: 'Failed to store PDF: ' + uploadError.message }, { status: 500 })
   }
 
-  // Get a permanent public URL
-  const { data: urlData } = admin.storage
-    .from('signed-files')
-    .getPublicUrl(fileName)
-
-  const documentUrl = urlData.publicUrl
+  const documentUrl = `/api/files/${params.id}/download`
 
   // Update the SHE file record
   await admin.from('she_files').update({
     status:                'completed',
     completed_at:          new Date().toISOString(),
-    docuseal_document_url: documentUrl,   // repurposing this field for our PDF URL
-    generated_draft:       completedText, // save the final completed version
+    docuseal_document_url: documentUrl,   // authenticated download route (existing UI links keep working)
+    signed_pdf_path:       storagePath,
+    signed_pdf_sha256:     pdfSha256,
+    generated_draft:       cleanText,     // save the final completed version
     updated_at:            new Date().toISOString(),
   }).eq('id', params.id)
 
@@ -122,7 +130,7 @@ export async function POST(
     })
     .eq('she_file_id', params.id)
 
-  console.log(`[complete] File ${params.id} signed and PDF stored: ${documentUrl}`)
+  console.log(`[complete] File ${params.id} signed and stored at ${storagePath}`)
 
   return NextResponse.json({
     success:     true,

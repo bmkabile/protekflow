@@ -3,6 +3,7 @@
 
 import Link from 'next/link'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import DraftStarter from '@/components/DraftStarter'
 
 const C = {
   g50:'#f0fdf4',g100:'#dcfce7',g500:'#22c55e',g600:'#16a34a',g700:'#15803d',g900:'#14532d',
@@ -31,13 +32,15 @@ export default async function PaymentSuccessPage({
           Your SHE file is in the queue. A verified SACPCMP consultant will review and sign it within <strong style={{color:C.g900}}>48 hours</strong>.
         </p>
 
+        {fileId && <DraftStarter fileId={fileId} />}
+
         {/* What happens next */}
         <div style={{background:C.g50,borderRadius:12,padding:'16px 20px',textAlign:'left',marginBottom:28}}>
           <div style={{fontSize:11,fontWeight:600,color:C.g500,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:12}}>What happens next</div>
           {[
             ['🤖','AI draft generated','Your project details are being filled into the SHE file template right now.'],
             ['🔍','Consultant matched','A verified SACPCMP professional is being assigned to your file.'],
-            ['✍️','Review & e-sign','Your consultant reviews, customises, and signs via DocuSeal.'],
+            ['✍️','Review & e-sign','Your consultant reviews and customises the draft, then signs it with their registered SACPCMP details.'],
             ['📄','Delivered to you','You receive your signed, compliant SHE file by email and in your dashboard.'],
           ].map(([icon,title,desc]) => (
             <div key={String(title)} style={{display:'flex',gap:12,marginBottom:12,alignItems:'flex-start'}}>
